@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="agentcensus 0.1.0">
+<title>Agent Discovery Report</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='8' r='4' fill='%236d8cff'/%3E%3Ccircle cx='7' cy='23' r='4' fill='%236d8cff'/%3E%3Ccircle cx='25' cy='23' r='4' fill='%236d8cff'/%3E%3Cpath d='M16 8L7 23M16 8l9 15M7 23h18' stroke='%236d8cff' stroke-width='1.5' fill='none' opacity='.5'/%3E%3C/svg%3E">
+<style>:root {
+  --bg: #0f1117;
+  --bg-elev: #171a23;
+  --bg-elev-2: #1e2230;
+  --border: #2a2f3e;
+  --text: #e6e8ee;
+  --text-dim: #9aa0b0;
+  --text-faint: #6b7180;
+  --accent: #6d8cff;
+  --accent-soft: rgba(109, 140, 255, 0.14);
+  --critical: #ff5a5f;
+  --high: #ff8a3d;
+  --medium: #ffc53d;
+  --low: #4cc38a;
+  --info: #8b90a0;
+  --radius: 12px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--mono); font-size: 0.9em; color: var(--text-dim); }
+
+/* Header */
+.report-head { margin-bottom: 28px; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.report-head h1 { margin: 0 0 6px; font-size: 28px; font-weight: 650; letter-spacing: -0.01em; }
+.meta { color: var(--text-dim); font-size: 13px; }
+.meta time { color: var(--text); }
+
+/* Cards */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.card .label { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+.card .big { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; }
+.card .sub { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
+
+.breakdown { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.breakdown .row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.breakdown .row .name { color: var(--text-dim); flex: 1; }
+.breakdown .row .val { font-variant-numeric: tabular-nums; color: var(--text); }
+
+.sevbar { display: flex; height: 8px; border-radius: 6px; overflow: hidden; margin: 10px 0 12px; background: var(--bg-elev-2); }
+.sevbar span { display: block; height: 100%; }
+.sevlegend { display: flex; flex-wrap: wrap; gap: 10px 14px; }
+.sevlegend .item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
+.sev-critical { background: var(--critical); }
+.sev-high { background: var(--high); }
+.sev-medium { background: var(--medium); }
+.sev-low { background: var(--low); }
+.sev-info { background: var(--info); }
+
+/* Controls */
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.controls input, .controls select {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 13px;
+  font-family: var(--sans);
+}
+.controls input[type=search] { flex: 1; min-width: 220px; }
+.controls input:focus, .controls select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.controls .count { color: var(--text-faint); font-size: 12.5px; margin-left: auto; }
+
+/* Table */
+.table-scroll { border: 1px solid var(--border); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; }
+thead th:first-child { border-top-left-radius: calc(var(--radius) - 1px); }
+thead th:last-child { border-top-right-radius: calc(var(--radius) - 1px); }
+tbody tr:last-child td:first-child { border-bottom-left-radius: calc(var(--radius) - 1px); }
+tbody tr:last-child td:last-child { border-bottom-right-radius: calc(var(--radius) - 1px); }
+thead th {
+  text-align: left;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 11px 14px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+thead th.expander { width: 30px; cursor: default; }
+thead th.num { text-align: right; }
+thead th[data-k]:hover { color: var(--text); }
+thead th.sorted::after { content: " ▾"; color: var(--accent); }
+thead th.sorted.asc::after { content: " ▴"; }
+
+tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody tr.agent { cursor: pointer; }
+tbody tr.agent:hover { background: var(--bg-elev); }
+tbody tr.agent:last-child td, tbody tr.detail:last-child td { border-bottom: none; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.agent-name { font-weight: 600; color: var(--text); }
+.agent-id { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+.exp-toggle { color: var(--text-faint); transition: transform 0.12s ease; display: inline-block; }
+tr.agent.open .exp-toggle { transform: rotate(90deg); color: var(--accent); }
+
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.findings-cell { display: inline-flex; align-items: center; gap: 7px; justify-content: flex-end; }
+.findings-cell .clean { color: var(--low); }
+
+/* Detail */
+tr.detail > td { background: var(--bg-elev); padding: 0; }
+.detail-inner { padding: 16px 18px 22px 44px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+.detail-inner .full { grid-column: 1 / -1; }
+.field h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+.field .pre { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; color: var(--text-dim); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-height: 220px; overflow: auto; }
+.kv { display: flex; flex-wrap: wrap; gap: 6px; }
+.list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.list li { font-size: 12.5px; color: var(--text-dim); }
+.list li .lead { color: var(--text); }
+.muted { color: var(--text-faint); font-style: italic; }
+
+.finding { border-left: 3px solid var(--border); padding: 7px 0 7px 12px; margin-bottom: 8px; }
+.finding.s-critical { border-color: var(--critical); }
+.finding.s-high { border-color: var(--high); }
+.finding.s-medium { border-color: var(--medium); }
+.finding.s-low { border-color: var(--low); }
+.finding.s-info { border-color: var(--info); }
+.finding .ftitle { font-weight: 600; color: var(--text); font-size: 13px; }
+.finding .fsev { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 5px; margin-right: 8px; color: #0f1117; }
+.fsev.s-critical { background: var(--critical); }
+.fsev.s-high { background: var(--high); }
+.fsev.s-medium { background: var(--medium); }
+.fsev.s-low { background: var(--low); }
+.fsev.s-info { background: var(--info); color: var(--text); }
+.finding .fmsg { color: var(--text-dim); font-size: 12.5px; margin-top: 3px; }
+.finding .frem { color: var(--text-faint); font-size: 12px; margin-top: 3px; }
+.finding .frem b { color: var(--text-dim); font-weight: 600; }
+
+.empty { text-align: center; color: var(--text-faint); padding: 32px; }
+
+.coverage-note { margin: 22px auto 0; max-width: 760px; text-align: center; font-size: 12px; line-height: 1.6; color: var(--text-faint); }
+.report-foot { margin-top: 16px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
+.report-foot strong { color: var(--text-dim); }
+
+@media (max-width: 720px) {
+  .detail-inner { grid-template-columns: 1fr; }
+  thead th.hide-sm, tbody td.hide-sm { display: none; }
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f8fa;
+    --bg-elev: #ffffff;
+    --bg-elev-2: #eef0f4;
+    --border: #e1e4ea;
+    --text: #1a1d26;
+    --text-dim: #555b6b;
+    --text-faint: #888e9c;
+    --accent: #3a5bd9;
+    --accent-soft: rgba(58, 91, 217, 0.12);
+    --critical: #d8333a;
+    --high: #d9690b;
+    --medium: #b8860b;
+    --low: #1a9d5a;
+    --info: #777d8c;
+  }
+  .fsev.s-medium, .fsev.s-high, .fsev.s-critical, .fsev.s-low { color: #fff; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="report-head">
+    <div class="eyebrow">AGENT DISCOVERY REPORT</div>
+    <h1>AI Agent Inventory</h1>
+    <div class="meta">
+      Generated <time>2026-06-18T21:28:07.298212+00:00</time>
+      &middot; source <code>demo</code>
+      &middot; <span id="m-total">0</span> agents
+    </div>
+  </header>
+
+  <section class="cards" id="cards" aria-label="Summary"></section>
+
+  <section class="controls" aria-label="Filters">
+    <input id="q" type="search" placeholder="Search agents, models, owners, tools…" autocomplete="off">
+    <select id="f-source" aria-label="Filter by source"></select>
+    <select id="f-model" aria-label="Filter by model"></select>
+    <select id="f-sev" aria-label="Filter by minimum finding severity"></select>
+    <span class="count" id="showing"></span>
+  </section>
+
+  <div class="table-scroll">
+    <table id="agents">
+      <thead>
+        <tr>
+          <th class="expander" aria-hidden="true"></th>
+          <th data-k="name">Agent</th>
+          <th data-k="source_system">Source</th>
+          <th data-k="kind">Kind</th>
+          <th data-k="model">Model</th>
+          <th data-k="owner">Owner</th>
+          <th data-k="channels" class="num">Channels</th>
+          <th data-k="findings" class="num">Findings</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <p class="empty" id="empty" hidden>No agents match the current filters.</p>
+
+  <p class="coverage-note">
+    Coverage: AgentCensus reports what the discovery APIs expose. Content-safety / RAI is applied by
+    default and its real posture &mdash; like DLP &mdash; is governed via Microsoft Purview (DSPM for AI)
+    and Azure AI Content Safety, which discovery can't see; verified ownership is also often not
+    harvestable. Those gaps are shown, not scored.
+  </p>
+
+  <footer class="report-foot">
+    Generated by <strong>AgentCensus</strong> 0.1.0 &middot; open source &middot;
+    read-only discovery &middot;
+    <a href="https://github.com/kjack3434/AgentCensus/issues" rel="noopener">report an issue</a>
+  </footer>
+</div>
+
+<script type="application/json" id="data">{"schema_version": "agentcensus/v1", "meta": {"generated_at": "2026-06-18T21:28:07.298212Z", "source": "demo", "tool_version": "0.1.0", "environment": null}, "summary": {"total_agents": 13, "total_findings": 16, "by_source": {"copilot_studio": 7, "azure_ai_foundry": 6}, "by_model": {"GPT-4.1": 2, "GPT-4o": 7, "GPT-5 (Preview)": 1, "unknown": 2, "GPT-4o-mini": 1}, "by_status": {"active": 13}, "by_category": {"internal": 8, "customer_facing": 3, "autonomous": 2}, "findings_by_severity": {"critical": 1, "medium": 7, "high": 5, "low": 3}}, "agents": [{"name": "HR Policy Helper", "external_id": "contoso:bot:hr_policy_helper", "source_system": "copilot_studio", "provider": "microsoft", "kind": "declarative", "model": "GPT-4.1", "model_tier": "standard", "instructions": "You are the HR Policy Helper. Answer employee questions about leave, benefits, and workplace policy using only the approved HR knowledge base. If unsure, direct the employee to hrsupport@contoso.example.", "instructions_length": 203, "tools": [{"name": "PolicyLookup", "tool_type": "function", "server_url": null, "requires_approval": "always", "write_capable": false, "source": "topic"}], "knowledge": [{"name": "HR Policy Library", "kind": "sharepoint", "scope": "https://contoso.sharepoint.example/sites/hr", "index_name": null, "connection_reference": null}], "guardrails": [{"kind": "content_safety", "level": "high", "source": "cs_aiSettings"}], "owners": [{"name": "Dana Okoro", "email": "dana.okoro@contoso.example", "oid": null, "source": "copilot_studio:ownerid"}], "channels": ["Microsoft Teams"], "status": "active", "version": "1.4.0", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2025-11-03T09:12:00Z", "modified_on": "2026-05-28T14:05:00Z", "published_on": "2026-05-28T16:00:00Z", "properties": {"template": "declarative", "has_human_in_the_loop": true}, "findings": [], "category": "internal"}, {"name": "Public Store Greeter", "external_id": "contoso:bot:public_store_greeter", "source_system": "copilot_studio", "provider": "microsoft", "kind": "custom", "model": "GPT-4o", "model_tier": "standard", "instructions": "Greet website visitors, answer store hours and product questions, and hand off to a human for orders.", "instructions_length": 101, "tools": [{"name": "StoreHoursLookup", "tool_type": "function", "server_url": null, "requires_approval": "never", "write_capable": false, "source": null}], "knowledge": [{"name": "Storefront FAQ", "kind": "web", "scope": "https://shop.contoso.example/faq", "index_name": null, "connection_reference": null}], "guardrails": [], "owners": [{"name": "Marketing Team", "email": "marketing@contoso.example", "oid": null, "source": "copilot_studio:ownerid"}], "channels": ["Web Chat", "Facebook Messenger"], "status": "active", "version": "2.0.1", "autonomous": false, "shared_with_everyone": true, "no_auth_required": true, "multi_tenant": false, "created_on": "2025-09-15T10:00:00Z", "modified_on": "2026-05-02T11:30:00Z", "published_on": "2026-05-02T12:00:00Z", "properties": {"template": "custom", "access_control_policy": "Any"}, "findings": [{"rule_id": "SWEEP-001", "title": "Public, unauthenticated agent", "severity": "critical", "message": "Agent requires no authentication and is shared broadly \u2014 anyone can use it.", "remediation": "Require authentication and restrict access to specific users or groups."}, {"rule_id": "SWEEP-008", "title": "Broad channel exposure", "severity": "medium", "message": "Agent is published to a wide surface: Web Chat, Facebook Messenger.", "remediation": "Limit the agent to the channels it actually needs."}], "category": "customer_facing"}, {"name": "Invoice Autobot", "external_id": "contoso:bot:invoice_autobot", "source_system": "copilot_studio", "provider": "microsoft", "kind": "custom", "model": "GPT-4o", "model_tier": "standard", "instructions": "On a schedule, read new invoices from the shared mailbox and post matching payments to the finance system.", "instructions_length": 106, "tools": [{"name": "PostPayment", "tool_type": "http", "server_url": "https://finance.contoso.example/api/payments", "requires_approval": "never", "write_capable": true, "source": "topic:HttpRequestAction"}], "knowledge": [], "guardrails": [], "owners": [], "channels": ["Web Chat"], "status": "active", "version": "0.9.2", "autonomous": true, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-02-20T08:00:00Z", "modified_on": "2026-06-01T07:45:00Z", "published_on": null, "properties": {"template": "custom", "external_trigger": true, "uses_http_requests": true}, "findings": [{"rule_id": "SWEEP-004", "title": "Autonomous agent without human-in-the-loop", "severity": "high", "message": "Agent can be triggered autonomously with no human approval step detected.", "remediation": "Add a human approval / review step for autonomous actions."}, {"rule_id": "SWEEP-005", "title": "Write-capable tool without approval", "severity": "high", "message": "Tool(s) can make changes without an approval gate: PostPayment.", "remediation": "Require approval for side-effecting tools or scope them to read-only."}], "category": "autonomous"}, {"name": "Lab GPT-5 Preview", "external_id": "contoso:bot:lab_gpt5_preview", "source_system": "copilot_studio", "provider": "microsoft", "kind": "declarative", "model": "GPT-5 (Preview)", "model_tier": "preview", "instructions": "Experimental research assistant for the innovation lab. Summarize papers and brainstorm ideas.", "instructions_length": 94, "tools": [{"name": "DocSummarize", "tool_type": "function", "server_url": null, "requires_approval": "always", "write_capable": false, "source": null}], "knowledge": [{"name": "Research Index", "kind": "azure_search", "scope": null, "index_name": "lab-papers", "connection_reference": null}], "guardrails": [{"kind": "content_safety", "level": "medium", "source": "cs_aiSettings"}], "owners": [{"name": "Priya Nair", "email": "priya.nair@contoso.example", "oid": null, "source": "copilot_studio:ownerid"}], "channels": ["Microsoft Teams"], "status": "active", "version": "0.3.0", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-04-10T13:00:00Z", "modified_on": "2026-06-10T09:20:00Z", "published_on": null, "properties": {"template": "declarative", "has_human_in_the_loop": true}, "findings": [{"rule_id": "SWEEP-007", "title": "Experimental, preview, or unknown model", "severity": "medium", "message": "Agent runs on tier 'preview'; governance and stability guarantees may not apply.", "remediation": "Pin the agent to a governed, generally-available model."}], "category": "internal"}, {"name": "Travel Concierge", "external_id": "contoso:bot:travel_concierge", "source_system": "copilot_studio", "provider": "microsoft", "kind": "declarative", "model": "GPT-4o", "model_tier": "standard", "instructions": "Help staff book travel, look up itineraries, and answer travel-policy questions across regions.", "instructions_length": 95, "tools": [{"name": "FlightSearchMCP", "tool_type": "mcp", "server_url": "https://mcp.travelpartner.example/sse", "requires_approval": "conditional", "write_capable": false, "source": "aipluginoperation"}, {"name": "WebBrowsing", "tool_type": "web_browse", "server_url": null, "requires_approval": "never", "write_capable": false, "source": null}], "knowledge": [{"name": "Travel Policy", "kind": "sharepoint", "scope": "https://contoso.sharepoint.example/sites/travel", "index_name": null, "connection_reference": null}], "guardrails": [{"kind": "content_safety", "level": "high", "source": "cs_aiSettings"}], "owners": [{"name": "Travel Ops", "email": "travelops@contoso.example", "oid": null, "source": "copilot_studio:ownerid"}], "channels": ["Microsoft Teams", "Web Chat", "Slack"], "status": "active", "version": "3.1.0", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2025-12-01T10:00:00Z", "modified_on": "2026-06-09T15:40:00Z", "published_on": "2026-06-09T16:00:00Z", "properties": {"template": "declarative", "uses_mcp": true, "has_human_in_the_loop": true}, "findings": [{"rule_id": "SWEEP-006", "title": "Uses external MCP server", "severity": "medium", "message": "Agent depends on external MCP server tool(s): FlightSearchMCP.", "remediation": "Review the MCP server's trust, scopes, and data handling."}, {"rule_id": "SWEEP-008", "title": "Broad channel exposure", "severity": "medium", "message": "Agent is published to a wide surface: Microsoft Teams, Web Chat, Slack.", "remediation": "Limit the agent to the channels it actually needs."}], "category": "customer_facing"}, {"name": "Empty Shell Bot", "external_id": "contoso:bot:empty_shell_bot", "source_system": "copilot_studio", "provider": "microsoft", "kind": "custom", "model": "GPT-4.1", "model_tier": "standard", "instructions": "", "instructions_length": 0, "tools": [], "knowledge": [], "guardrails": [{"kind": "content_safety", "level": "default", "source": "cs_aiSettings"}], "owners": [{"name": "Sam Lee", "email": "sam.lee@contoso.example", "oid": null, "source": "copilot_studio:ownerid"}], "channels": ["Microsoft Teams"], "status": "active", "version": "0.1.0", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-05-30T09:00:00Z", "modified_on": "2026-05-30T09:05:00Z", "published_on": null, "properties": {"template": "custom"}, "findings": [{"rule_id": "SWEEP-009", "title": "Empty or placeholder instructions", "severity": "low", "message": "Agent has empty or boilerplate instructions \u2014 it may be unconfigured or abandoned.", "remediation": "Add purpose-specific instructions or retire the agent."}], "category": "internal"}, {"name": "Vendor Onboarding", "external_id": "contoso:bot:vendor_onboarding", "source_system": "copilot_studio", "provider": "microsoft", "kind": "custom", "model": "GPT-4o", "model_tier": "standard", "instructions": "Guide procurement staff through onboarding new vendors and create vendor records on request.", "instructions_length": 92, "tools": [{"name": "CreateVendorRecord", "tool_type": "connector_action", "server_url": null, "requires_approval": "never", "write_capable": true, "source": "topic:InvokeConnectorTaskAction"}], "knowledge": [{"name": "Procurement Handbook", "kind": "sharepoint", "scope": "https://contoso.sharepoint.example/sites/procurement", "index_name": null, "connection_reference": null}], "guardrails": [{"kind": "content_safety", "level": "high", "source": "cs_aiSettings"}], "owners": [{"name": "Procurement Team", "email": "procurement@contoso.example", "oid": null, "source": "copilot_studio:ownerid"}], "channels": ["Microsoft Teams"], "status": "active", "version": "1.2.0", "autonomous": false, "shared_with_everyone": true, "no_auth_required": false, "multi_tenant": false, "created_on": "2025-10-20T10:00:00Z", "modified_on": "2026-04-18T13:15:00Z", "published_on": "2026-04-18T14:00:00Z", "properties": {"template": "custom", "access_control_policy": "Any"}, "findings": [{"rule_id": "SWEEP-005", "title": "Write-capable tool without approval", "severity": "high", "message": "Tool(s) can make changes without an approval gate: CreateVendorRecord.", "remediation": "Require approval for side-effecting tools or scope them to read-only."}], "category": "customer_facing"}, {"name": "Field Triage", "external_id": "proj-svc:agent:field_triage", "source_system": "azure_ai_foundry", "provider": "microsoft", "kind": "agent", "model": "GPT-4o", "model_tier": "standard", "instructions": "Triage incoming field-service tickets, classify severity, and suggest next steps for technicians.", "instructions_length": 97, "tools": [{"name": "TicketSearch", "tool_type": "file_search", "server_url": null, "requires_approval": "always", "write_capable": false, "source": null}], "knowledge": [{"name": "Service Manuals", "kind": "azure_search", "scope": null, "index_name": "svc-manuals", "connection_reference": null}], "guardrails": [{"kind": "content_safety", "level": null, "source": "foundry_rai_config"}], "owners": [{"name": "Jordan Vance", "email": "jordan.vance@contoso.example", "oid": null, "source": "project_creator"}], "channels": [], "status": "active", "version": "2", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-01-12T10:00:00Z", "modified_on": "2026-06-05T10:00:00Z", "published_on": null, "properties": {"project": "svc-proj", "runtime_provider": "foundry_agents", "has_human_in_the_loop": true}, "findings": [], "category": "internal"}, {"name": "Claims Workflow", "external_id": "proj-ins:agent:claims_workflow", "source_system": "azure_ai_foundry", "provider": "microsoft", "kind": "workflow", "model": null, "model_tier": null, "instructions": "Orchestrate the claims intake process: validate, route to a specialist agent, and finalize.", "instructions_length": 91, "tools": [], "knowledge": [], "guardrails": [], "owners": [{"name": "Claims Platform", "email": "claims-platform@contoso.example", "oid": null, "source": "project_creator"}], "channels": [], "status": "active", "version": "5", "autonomous": true, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-03-01T10:00:00Z", "modified_on": "2026-06-02T10:00:00Z", "published_on": null, "properties": {"project": "ins-proj", "orchestration_type": "workflow", "invoked_agents": ["Field Triage", "Research Scout"]}, "findings": [{"rule_id": "SWEEP-004", "title": "Autonomous agent without human-in-the-loop", "severity": "high", "message": "Agent can be triggered autonomously with no human approval step detected.", "remediation": "Add a human approval / review step for autonomous actions."}, {"rule_id": "SWEEP-007", "title": "Experimental, preview, or unknown model", "severity": "medium", "message": "Agent runs on an unknown model; governance and stability guarantees may not apply.", "remediation": "Pin the agent to a governed, generally-available model."}], "category": "autonomous"}, {"name": "Code Runner", "external_id": "proj-eng:agent:code_runner", "source_system": "azure_ai_foundry", "provider": "microsoft", "kind": "agent", "model": "GPT-4o", "model_tier": "standard", "instructions": "Assist engineers by running and debugging code snippets and calling internal developer tools.", "instructions_length": 93, "tools": [{"name": "CodeInterpreter", "tool_type": "code_interpreter", "server_url": null, "requires_approval": "never", "write_capable": true, "source": null}, {"name": "DevToolsMCP", "tool_type": "mcp", "server_url": "https://mcp.devtools.example/sse", "requires_approval": "never", "write_capable": false, "source": null}], "knowledge": [], "guardrails": [{"kind": "content_safety", "level": null, "source": "foundry_rai_config"}], "owners": [{"name": "Platform Eng", "email": "platform-eng@contoso.example", "oid": null, "source": "project_creator"}], "channels": [], "status": "active", "version": "3", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-02-14T10:00:00Z", "modified_on": "2026-06-08T10:00:00Z", "published_on": null, "properties": {"project": "eng-proj", "runtime_provider": "foundry_agents"}, "findings": [{"rule_id": "SWEEP-005", "title": "Write-capable tool without approval", "severity": "high", "message": "Tool(s) can make changes without an approval gate: CodeInterpreter.", "remediation": "Require approval for side-effecting tools or scope them to read-only."}, {"rule_id": "SWEEP-006", "title": "Uses external MCP server", "severity": "medium", "message": "Agent depends on external MCP server tool(s): DevToolsMCP.", "remediation": "Review the MCP server's trust, scopes, and data handling."}], "category": "internal"}, {"name": "Research Scout", "external_id": "proj-rnd:agent:research_scout", "source_system": "azure_ai_foundry", "provider": "microsoft", "kind": "agent", "model": "GPT-4o", "model_tier": "standard", "instructions": "Search the web and internal sources to gather background research for the R&D team.", "instructions_length": 83, "tools": [{"name": "WebSearch", "tool_type": "web_browse", "server_url": null, "requires_approval": "never", "write_capable": false, "source": null}], "knowledge": [{"name": "R&D Wiki", "kind": "azure_search", "scope": null, "index_name": "rnd-wiki", "connection_reference": null}], "guardrails": [], "owners": [{"name": "Ari Cohen", "email": "ari.cohen@contoso.example", "oid": null, "source": "project_creator"}], "channels": [], "status": "active", "version": "1", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-03-22T10:00:00Z", "modified_on": "2026-05-19T10:00:00Z", "published_on": null, "properties": {"project": "rnd-proj"}, "findings": [], "category": "internal"}, {"name": "Legacy Assistant", "external_id": "proj-ops:agent:legacy_assistant", "source_system": "azure_ai_foundry", "provider": "microsoft", "kind": "agent", "model": "unknown", "model_tier": null, "instructions": "General operations assistant for the operations team. Answer common how-to questions.", "instructions_length": 85, "tools": [{"name": "KbSearch", "tool_type": "file_search", "server_url": null, "requires_approval": "always", "write_capable": false, "source": null}], "knowledge": [{"name": "Ops Knowledge", "kind": "azure_search", "scope": null, "index_name": "ops-kb", "connection_reference": null}], "guardrails": [{"kind": "content_safety", "level": null, "source": "foundry_rai_config"}], "owners": [{"name": "Ops Team", "email": "ops@contoso.example", "oid": null, "source": "project_creator"}], "channels": [], "status": "active", "version": "1", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2023-11-02T10:00:00Z", "modified_on": "2024-01-10T10:00:00Z", "published_on": null, "properties": {"project": "ops-proj", "note": "migrated from legacy assistants api"}, "findings": [{"rule_id": "SWEEP-007", "title": "Experimental, preview, or unknown model", "severity": "medium", "message": "Agent runs on an unknown model; governance and stability guarantees may not apply.", "remediation": "Pin the agent to a governed, generally-available model."}, {"rule_id": "SWEEP-010", "title": "Stale agent", "severity": "low", "message": "Not modified in 890 days (threshold 90).", "remediation": "Confirm the agent is still needed; retire it if not."}], "category": "internal"}, {"name": "Orphan Helper", "external_id": "proj-x:agent:orphan_helper", "source_system": "azure_ai_foundry", "provider": "microsoft", "kind": "agent", "model": "GPT-4o-mini", "model_tier": "standard", "instructions": "", "instructions_length": 0, "tools": [], "knowledge": [], "guardrails": [], "owners": [], "channels": [], "status": "active", "version": "1", "autonomous": false, "shared_with_everyone": false, "no_auth_required": false, "multi_tenant": false, "created_on": "2026-05-25T10:00:00Z", "modified_on": "2026-05-25T10:00:00Z", "published_on": null, "properties": {"project": "x-proj"}, "findings": [{"rule_id": "SWEEP-009", "title": "Empty or placeholder instructions", "severity": "low", "message": "Agent has empty or boilerplate instructions \u2014 it may be unconfigured or abandoned.", "remediation": "Add purpose-specific instructions or retire the agent."}], "category": "internal"}], "warnings": []}</script>
+<script>(function () {
+  "use strict";
+
+  var R = JSON.parse(document.getElementById("data").textContent);
+  var agents = (R.agents || []).map(function (a, i) { a._i = i; return a; });
+  var summary = R.summary || {};
+
+  var SEV = ["critical", "high", "medium", "low", "info"];
+  var SEVRANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function srcLabel(s) {
+    return s === "copilot_studio" ? "Copilot Studio"
+      : s === "azure_ai_foundry" ? "Azure AI Foundry"
+      : (s || "—");
+  }
+  function pretty(s) {
+    if (!s) return "";
+    s = String(s).replace(/_/g, " ");
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+  function ownerName(a) {
+    var o = a.owners && a.owners[0];
+    return o ? (o.name || o.email || "") : "";
+  }
+  function maxSev(a) {
+    var r = -1, fs = a.findings || [];
+    for (var i = 0; i < fs.length; i++) if (SEVRANK[fs[i].severity] > r) r = SEVRANK[fs[i].severity];
+    return r;
+  }
+  function sevByRank(rank) {
+    for (var k in SEVRANK) if (SEVRANK[k] === rank) return k;
+    return null;
+  }
+  function datePart(s) { return s ? String(s).slice(0, 10) : ""; }
+
+  // ── summary cards ────────────────────────────────────────────────────────
+  function breakdown(dict, opts) {
+    opts = opts || {};
+    var wrap = el("div", "breakdown");
+    var entries = Object.keys(dict || {}).map(function (k) { return [k, dict[k]]; });
+    entries.sort(function (a, b) { return b[1] - a[1]; });
+    if (opts.limit) entries = entries.slice(0, opts.limit);
+    if (!entries.length) { wrap.appendChild(el("div", "sub", "none")); return wrap; }
+    entries.forEach(function (e) {
+      var row = el("div", "row");
+      row.appendChild(el("span", "name", opts.fmt ? opts.fmt(e[0]) : e[0]));
+      row.appendChild(el("span", "val", String(e[1])));
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  function card(label) {
+    var c = el("div", "card");
+    c.appendChild(el("div", "label", label));
+    return c;
+  }
+
+  function buildCards() {
+    var host = document.getElementById("cards");
+    var bySrc = summary.by_source || {};
+
+    // Agents
+    var c1 = card("Agents");
+    c1.appendChild(el("div", "big", String(summary.total_agents || 0)));
+    var srcSub = Object.keys(bySrc).map(function (k) { return bySrc[k] + " " + srcLabel(k); }).join("  ·  ");
+    c1.appendChild(el("div", "sub", srcSub || "—"));
+    host.appendChild(c1);
+
+    // Findings + severity bar
+    var c2 = card("Findings");
+    c2.appendChild(el("div", "big", String(summary.total_findings || 0)));
+    var sevd = summary.findings_by_severity || {};
+    var totalSev = SEV.reduce(function (n, s) { return n + (sevd[s] || 0); }, 0);
+    var bar = el("div", "sevbar");
+    SEV.forEach(function (s) {
+      var n = sevd[s] || 0;
+      if (!n) return;
+      var seg = el("span", "sev-" + s);
+      seg.style.width = (100 * n / totalSev) + "%";
+      seg.title = n + " " + s;
+      bar.appendChild(seg);
+    });
+    c2.appendChild(bar);
+    var legend = el("div", "sevlegend");
+    SEV.forEach(function (s) {
+      var item = el("div", "item");
+      item.appendChild(el("span", "dot sev-" + s));
+      item.appendChild(el("span", null, pretty(s) + " " + (sevd[s] || 0)));
+      legend.appendChild(item);
+    });
+    c2.appendChild(legend);
+    host.appendChild(c2);
+
+    // Top models
+    var c3 = card("Top models");
+    c3.appendChild(breakdown(summary.by_model, { limit: 5, fmt: function (m) { return m || "unknown"; } }));
+    host.appendChild(c3);
+
+    // Categories
+    var c4 = card("Categories");
+    c4.appendChild(breakdown(summary.by_category, { fmt: pretty }));
+    host.appendChild(c4);
+  }
+
+  // ── filters ──────────────────────────────────────────────────────────────
+  function fillSelect(id, label, values, fmt) {
+    var sel = document.getElementById(id);
+    sel.appendChild(new Option(label, ""));
+    values.forEach(function (v) { sel.appendChild(new Option(fmt ? fmt(v) : v, v)); });
+  }
+
+  function buildFilters() {
+    var srcs = Object.keys(summary.by_source || {});
+    fillSelect("f-source", "All sources", srcs, srcLabel);
+    var models = Object.keys(summary.by_model || {}).sort();
+    fillSelect("f-model", "All models", models, function (m) { return m || "unknown"; });
+    fillSelect("f-sev", "Any severity", SEV, function (s) { return pretty(s) + "+"; });
+  }
+
+  // ── detail panel ───────────────────────────────────────────────────────────
+  function fieldList(title, items, render) {
+    var f = el("div", "field");
+    f.appendChild(el("h4", null, title));
+    if (!items || !items.length) { f.appendChild(el("div", "muted", "none")); return f; }
+    var ul = el("ul", "list");
+    items.forEach(function (it) { ul.appendChild(render(it)); });
+    f.appendChild(ul);
+    return f;
+  }
+
+  function tagRow(tags) {
+    var kv = el("div", "kv");
+    tags.forEach(function (t) { if (t) kv.appendChild(el("span", "tag", t)); });
+    return kv;
+  }
+
+  function buildDetail(a) {
+    var inner = el("div", "detail-inner");
+
+    // Instructions (full width)
+    var instr = el("div", "field full");
+    instr.appendChild(el("h4", null, "Instructions"));
+    if (a.instructions && a.instructions.trim()) {
+      instr.appendChild(el("div", "pre", a.instructions));
+    } else {
+      instr.appendChild(el("div", "muted", "empty"));
+    }
+    inner.appendChild(instr);
+
+    // Tools
+    inner.appendChild(fieldList("Tools", a.tools, function (t) {
+      var li = el("li");
+      li.appendChild(el("span", "lead", t.name));
+      var bits = [pretty(t.tool_type)];
+      if (t.write_capable) bits.push("write");
+      if (t.requires_approval && t.requires_approval !== "unknown") bits.push("approval: " + t.requires_approval);
+      li.appendChild(document.createTextNode(" — " + bits.join(", ")));
+      if (t.server_url) { li.appendChild(document.createElement("br")); li.appendChild(el("code", null, t.server_url)); }
+      return li;
+    }));
+
+    // Knowledge
+    inner.appendChild(fieldList("Knowledge", a.knowledge, function (k) {
+      var li = el("li");
+      li.appendChild(el("span", "lead", k.name));
+      var extra = [pretty(k.kind)];
+      if (k.scope) extra.push(k.scope);
+      if (k.index_name) extra.push("index: " + k.index_name);
+      li.appendChild(document.createTextNode(" — " + extra.join(", ")));
+      return li;
+    }));
+
+    // Guardrails — absence is NOT scored: content-safety/RAI is on by default and its
+    // real posture is only visible via Microsoft Purview / Azure AI Content Safety.
+    var gf = el("div", "field");
+    gf.appendChild(el("h4", null, "Guardrails"));
+    if (a.guardrails && a.guardrails.length) {
+      var gul = el("ul", "list");
+      a.guardrails.forEach(function (g) {
+        var li = el("li");
+        li.appendChild(el("span", "lead", pretty(g.kind)));
+        var extra = [];
+        if (g.level) extra.push("level: " + g.level);
+        if (g.source) extra.push(g.source);
+        if (extra.length) li.appendChild(document.createTextNode(" — " + extra.join(", ")));
+        gul.appendChild(li);
+      });
+      gf.appendChild(gul);
+    } else {
+      gf.appendChild(el("div", "muted",
+        "Not exposed by discovery — governed via Microsoft Purview / Content Safety"));
+    }
+    inner.appendChild(gf);
+
+    // Owners
+    inner.appendChild(fieldList("Owners", a.owners, function (o) {
+      var li = el("li");
+      li.appendChild(el("span", "lead", o.name || o.email || "—"));
+      if (o.name && o.email) li.appendChild(document.createTextNode(" <" + o.email + ">"));
+      return li;
+    }));
+
+    // Posture
+    var posture = el("div", "field");
+    posture.appendChild(el("h4", null, "Posture"));
+    var tags = ["status: " + (a.status || "?"), "kind: " + pretty(a.kind)];
+    if (a.category) tags.push("category: " + pretty(a.category));
+    if (a.version) tags.push("v" + a.version);
+    if (a.autonomous) tags.push("autonomous");
+    if (a.shared_with_everyone) tags.push("shared with everyone");
+    if (a.no_auth_required) tags.push("no auth");
+    if (a.multi_tenant) tags.push("multi-tenant");
+    if (a.model_tier && a.model_tier !== "standard") tags.push("model tier: " + a.model_tier);
+    posture.appendChild(tagRow(tags));
+    inner.appendChild(posture);
+
+    // Channels
+    var ch = el("div", "field");
+    ch.appendChild(el("h4", null, "Channels"));
+    ch.appendChild((a.channels && a.channels.length) ? tagRow(a.channels) : el("div", "muted", "none"));
+    inner.appendChild(ch);
+
+    // Lifecycle
+    var life = el("div", "field");
+    life.appendChild(el("h4", null, "Lifecycle"));
+    var lifeTags = [];
+    if (a.created_on) lifeTags.push("created " + datePart(a.created_on));
+    if (a.modified_on) lifeTags.push("modified " + datePart(a.modified_on));
+    if (a.published_on) lifeTags.push("published " + datePart(a.published_on));
+    life.appendChild(lifeTags.length ? tagRow(lifeTags) : el("div", "muted", "unknown"));
+    inner.appendChild(life);
+
+    // Findings (full width)
+    var fwrap = el("div", "field full");
+    fwrap.appendChild(el("h4", null, "Findings (" + (a.findings ? a.findings.length : 0) + ")"));
+    if (a.findings && a.findings.length) {
+      a.findings.forEach(function (f) {
+        var d = el("div", "finding s-" + f.severity);
+        var head = el("div");
+        head.appendChild(el("span", "fsev s-" + f.severity, f.severity));
+        head.appendChild(el("span", "ftitle", f.title + "  (" + f.rule_id + ")"));
+        d.appendChild(head);
+        if (f.message) d.appendChild(el("div", "fmsg", f.message));
+        if (f.remediation) {
+          var rem = el("div", "frem");
+          rem.appendChild(el("b", null, "Fix: "));
+          rem.appendChild(document.createTextNode(f.remediation));
+          d.appendChild(rem);
+        }
+        fwrap.appendChild(d);
+      });
+    } else {
+      fwrap.appendChild(el("div", "muted", "No governance findings."));
+    }
+    inner.appendChild(fwrap);
+
+    return inner;
+  }
+
+  // ── table rows ─────────────────────────────────────────────────────────────
+  var tbody = document.getElementById("rows");
+
+  function buildRow(a) {
+    var tr = el("tr", "agent");
+    tr.appendChild(el("td", "expander").appendChild(el("span", "exp-toggle", "▸")).parentNode);
+
+    var nameTd = el("td");
+    nameTd.appendChild(el("div", "agent-name", a.name));
+    nameTd.appendChild(el("div", "agent-id", a.external_id));
+    tr.appendChild(nameTd);
+
+    var srcTd = el("td");
+    srcTd.appendChild(el("span", "tag", srcLabel(a.source_system)));
+    tr.appendChild(srcTd);
+
+    tr.appendChild(el("td", null, pretty(a.kind)));
+    tr.appendChild(el("td", null, a.model || "—"));
+    var owner = ownerName(a);
+    tr.appendChild(owner ? el("td", null, owner) : (function () { var t = el("td"); t.appendChild(el("span", "muted", "none")); return t; })());
+    tr.appendChild(el("td", "num", String((a.channels || []).length)));
+
+    var fTd = el("td", "num");
+    var cell = el("span", "findings-cell");
+    if (a.findings && a.findings.length) {
+      var ms = sevByRank(maxSev(a));
+      cell.appendChild(el("span", null, String(a.findings.length)));
+      cell.appendChild(el("span", "dot sev-" + ms));
+    } else {
+      cell.appendChild(el("span", "clean", "✓"));
+    }
+    fTd.appendChild(cell);
+    tr.appendChild(fTd);
+
+    var detail = el("tr", "detail");
+    detail.style.display = "none";
+    var dtd = el("td");
+    dtd.colSpan = 8;
+    dtd.appendChild(buildDetail(a));
+    detail.appendChild(dtd);
+
+    function toggle() {
+      var open = detail.style.display === "none";
+      detail.style.display = open ? "" : "none";
+      tr.classList.toggle("open", open);
+      tr.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    tr.addEventListener("click", toggle);
+
+    return [tr, detail];
+  }
+
+  // ── search / sort / filter state ───────────────────────────────────────────
+  var state = { q: "", source: "", model: "", minSev: "", sortKey: "findings", asc: false };
+
+  function searchText(a) {
+    var parts = [a.name, a.external_id, a.model, a.kind, srcLabel(a.source_system), a.instructions];
+    (a.owners || []).forEach(function (o) { parts.push(o.name, o.email); });
+    (a.tools || []).forEach(function (t) { parts.push(t.name, t.tool_type); });
+    (a.channels || []).forEach(function (c) { parts.push(c); });
+    return parts.filter(Boolean).join(" ").toLowerCase();
+  }
+
+  function sortVal(a, key) {
+    switch (key) {
+      case "source_system": return srcLabel(a.source_system).toLowerCase();
+      case "model": return (a.model || "").toLowerCase();
+      case "kind": return (a.kind || "").toLowerCase();
+      case "owner": return ownerName(a).toLowerCase();
+      case "channels": return (a.channels || []).length;
+      case "findings": return maxSev(a) * 1000 + (a.findings ? a.findings.length : 0);
+      default: return (a.name || "").toLowerCase();
+    }
+  }
+
+  function render() {
+    var q = state.q.trim().toLowerCase();
+    var filtered = agents.filter(function (a) {
+      if (state.source && a.source_system !== state.source) return false;
+      if (state.model && (a.model || "unknown") !== state.model) return false;
+      if (state.minSev && maxSev(a) < SEVRANK[state.minSev]) return false;
+      if (q && searchText(a).indexOf(q) === -1) return false;
+      return true;
+    });
+
+    filtered.sort(function (x, y) {
+      var vx = sortVal(x, state.sortKey), vy = sortVal(y, state.sortKey), c;
+      if (typeof vx === "number" && typeof vy === "number") c = vx - vy;
+      else c = String(vx).localeCompare(String(vy));
+      if (c === 0) c = (x.name || "").localeCompare(y.name || "");
+      return state.asc ? c : -c;
+    });
+
+    tbody.textContent = "";
+    filtered.forEach(function (a) {
+      var pair = buildRow(a);
+      tbody.appendChild(pair[0]);
+      tbody.appendChild(pair[1]);
+    });
+
+    document.getElementById("showing").textContent =
+      "Showing " + filtered.length + " of " + agents.length + " agents";
+    document.getElementById("empty").hidden = filtered.length !== 0;
+  }
+
+  // ── wire up ────────────────────────────────────────────────────────────────
+  function debounce(fn, ms) {
+    var t;
+    return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+  }
+
+  function init() {
+    document.getElementById("m-total").textContent = String(summary.total_agents || 0);
+    buildCards();
+    buildFilters();
+
+    var q = document.getElementById("q");
+    q.addEventListener("input", debounce(function () { state.q = q.value; render(); }, 120));
+    document.getElementById("f-source").addEventListener("change", function (e) { state.source = e.target.value; render(); });
+    document.getElementById("f-model").addEventListener("change", function (e) { state.model = e.target.value; render(); });
+    document.getElementById("f-sev").addEventListener("change", function (e) { state.minSev = e.target.value; render(); });
+
+    var ths = document.querySelectorAll("thead th[data-k]");
+    function paint() {
+      ths.forEach(function (th) {
+        var on = th.getAttribute("data-k") === state.sortKey;
+        th.classList.toggle("sorted", on);
+        th.classList.toggle("asc", on && state.asc);
+      });
+    }
+    ths.forEach(function (th) {
+      th.addEventListener("click", function () {
+        var k = th.getAttribute("data-k");
+        if (state.sortKey === k) state.asc = !state.asc;
+        else { state.sortKey = k; state.asc = (k === "name" || k === "owner" || k === "model" || k === "kind"); }
+        paint();
+        render();
+      });
+    });
+
+    paint();
+    render();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
