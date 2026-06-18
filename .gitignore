@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS / macOS (incl. external-drive cruft)
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+
+# Secrets / local env (the tool reads AGENTCENSUS_* from the environment, never a file)
+.env
+.env.*
+
+# Node (only used locally to build the demo GIF)
+node_modules/
+
+# Generated reports — never commit a real tenant's discovery output
+/reports/
+report.html
+*.report.html
+out.json
+
+# Internal / local-only (not part of the public repo)
+/docs/
+/memories/
+/.githooks/
+
+# AI assistant / dev-tool artifacts
+CLAUDE.md
+**/CLAUDE.md
+AGENTS.md
+.claude/
+.cursor/
+.windsurf/
+.aider*
+
+# Editor settings
+.vscode/
+.idea/
+*.swp

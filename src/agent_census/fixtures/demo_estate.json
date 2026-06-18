@@ -1,0 +1,335 @@
+{
+  "_comment": "Fully synthetic sample estate for `agentcensus sweep --demo`. No real tenant data. Emails use the reserved example domain; ids are illustrative.",
+  "agents": [
+    {
+      "name": "HR Policy Helper",
+      "external_id": "contoso:bot:hr_policy_helper",
+      "source_system": "copilot_studio",
+      "kind": "declarative",
+      "model": "GPT-4.1",
+      "model_tier": "standard",
+      "instructions": "You are the HR Policy Helper. Answer employee questions about leave, benefits, and workplace policy using only the approved HR knowledge base. If unsure, direct the employee to hrsupport@contoso.example.",
+      "tools": [
+        {"name": "PolicyLookup", "tool_type": "function", "requires_approval": "always", "write_capable": false, "source": "topic"}
+      ],
+      "knowledge": [
+        {"name": "HR Policy Library", "kind": "sharepoint", "scope": "https://contoso.sharepoint.example/sites/hr"}
+      ],
+      "guardrails": [
+        {"kind": "content_safety", "level": "high", "source": "cs_aiSettings"}
+      ],
+      "owners": [
+        {"name": "Dana Okoro", "email": "dana.okoro@contoso.example", "source": "copilot_studio:ownerid"}
+      ],
+      "channels": ["Microsoft Teams"],
+      "status": "active",
+      "version": "1.4.0",
+      "created_on": "2025-11-03T09:12:00Z",
+      "modified_on": "2026-05-28T14:05:00Z",
+      "published_on": "2026-05-28T16:00:00Z",
+      "properties": {"template": "declarative", "has_human_in_the_loop": true}
+    },
+    {
+      "name": "Public Store Greeter",
+      "external_id": "contoso:bot:public_store_greeter",
+      "source_system": "copilot_studio",
+      "kind": "custom",
+      "model": "GPT-4o",
+      "model_tier": "standard",
+      "instructions": "Greet website visitors, answer store hours and product questions, and hand off to a human for orders.",
+      "tools": [
+        {"name": "StoreHoursLookup", "tool_type": "function", "requires_approval": "never", "write_capable": false}
+      ],
+      "knowledge": [
+        {"name": "Storefront FAQ", "kind": "web", "scope": "https://shop.contoso.example/faq"}
+      ],
+      "guardrails": [],
+      "owners": [
+        {"name": "Marketing Team", "email": "marketing@contoso.example", "source": "copilot_studio:ownerid"}
+      ],
+      "channels": ["Web Chat", "Facebook Messenger"],
+      "status": "active",
+      "version": "2.0.1",
+      "no_auth_required": true,
+      "shared_with_everyone": true,
+      "created_on": "2025-09-15T10:00:00Z",
+      "modified_on": "2026-05-02T11:30:00Z",
+      "published_on": "2026-05-02T12:00:00Z",
+      "properties": {"template": "custom", "access_control_policy": "Any"}
+    },
+    {
+      "name": "Invoice Autobot",
+      "external_id": "contoso:bot:invoice_autobot",
+      "source_system": "copilot_studio",
+      "kind": "custom",
+      "model": "GPT-4o",
+      "model_tier": "standard",
+      "instructions": "On a schedule, read new invoices from the shared mailbox and post matching payments to the finance system.",
+      "tools": [
+        {"name": "PostPayment", "tool_type": "http", "server_url": "https://finance.contoso.example/api/payments", "requires_approval": "never", "write_capable": true, "source": "topic:HttpRequestAction"}
+      ],
+      "knowledge": [],
+      "guardrails": [],
+      "owners": [],
+      "channels": ["Web Chat"],
+      "status": "active",
+      "version": "0.9.2",
+      "autonomous": true,
+      "created_on": "2026-02-20T08:00:00Z",
+      "modified_on": "2026-06-01T07:45:00Z",
+      "properties": {"template": "custom", "external_trigger": true, "uses_http_requests": true}
+    },
+    {
+      "name": "Lab GPT-5 Preview",
+      "external_id": "contoso:bot:lab_gpt5_preview",
+      "source_system": "copilot_studio",
+      "kind": "declarative",
+      "model": "GPT-5 (Preview)",
+      "model_tier": "preview",
+      "instructions": "Experimental research assistant for the innovation lab. Summarize papers and brainstorm ideas.",
+      "tools": [
+        {"name": "DocSummarize", "tool_type": "function", "requires_approval": "always", "write_capable": false}
+      ],
+      "knowledge": [
+        {"name": "Research Index", "kind": "azure_search", "index_name": "lab-papers"}
+      ],
+      "guardrails": [
+        {"kind": "content_safety", "level": "medium", "source": "cs_aiSettings"}
+      ],
+      "owners": [
+        {"name": "Priya Nair", "email": "priya.nair@contoso.example", "source": "copilot_studio:ownerid"}
+      ],
+      "channels": ["Microsoft Teams"],
+      "status": "active",
+      "version": "0.3.0",
+      "created_on": "2026-04-10T13:00:00Z",
+      "modified_on": "2026-06-10T09:20:00Z",
+      "properties": {"template": "declarative", "has_human_in_the_loop": true}
+    },
+    {
+      "name": "Travel Concierge",
+      "external_id": "contoso:bot:travel_concierge",
+      "source_system": "copilot_studio",
+      "kind": "declarative",
+      "model": "GPT-4o",
+      "model_tier": "standard",
+      "instructions": "Help staff book travel, look up itineraries, and answer travel-policy questions across regions.",
+      "tools": [
+        {"name": "FlightSearchMCP", "tool_type": "mcp", "server_url": "https://mcp.travelpartner.example/sse", "requires_approval": "conditional", "write_capable": false, "source": "aipluginoperation"},
+        {"name": "WebBrowsing", "tool_type": "web_browse", "requires_approval": "never", "write_capable": false}
+      ],
+      "knowledge": [
+        {"name": "Travel Policy", "kind": "sharepoint", "scope": "https://contoso.sharepoint.example/sites/travel"}
+      ],
+      "guardrails": [
+        {"kind": "content_safety", "level": "high", "source": "cs_aiSettings"}
+      ],
+      "owners": [
+        {"name": "Travel Ops", "email": "travelops@contoso.example", "source": "copilot_studio:ownerid"}
+      ],
+      "channels": ["Microsoft Teams", "Web Chat", "Slack"],
+      "status": "active",
+      "version": "3.1.0",
+      "created_on": "2025-12-01T10:00:00Z",
+      "modified_on": "2026-06-09T15:40:00Z",
+      "published_on": "2026-06-09T16:00:00Z",
+      "properties": {"template": "declarative", "uses_mcp": true, "has_human_in_the_loop": true}
+    },
+    {
+      "name": "Empty Shell Bot",
+      "external_id": "contoso:bot:empty_shell_bot",
+      "source_system": "copilot_studio",
+      "kind": "custom",
+      "model": "GPT-4.1",
+      "model_tier": "standard",
+      "instructions": "",
+      "tools": [],
+      "knowledge": [],
+      "guardrails": [
+        {"kind": "content_safety", "level": "default", "source": "cs_aiSettings"}
+      ],
+      "owners": [
+        {"name": "Sam Lee", "email": "sam.lee@contoso.example", "source": "copilot_studio:ownerid"}
+      ],
+      "channels": ["Microsoft Teams"],
+      "status": "active",
+      "version": "0.1.0",
+      "created_on": "2026-05-30T09:00:00Z",
+      "modified_on": "2026-05-30T09:05:00Z",
+      "properties": {"template": "custom"}
+    },
+    {
+      "name": "Vendor Onboarding",
+      "external_id": "contoso:bot:vendor_onboarding",
+      "source_system": "copilot_studio",
+      "kind": "custom",
+      "model": "GPT-4o",
+      "model_tier": "standard",
+      "instructions": "Guide procurement staff through onboarding new vendors and create vendor records on request.",
+      "tools": [
+        {"name": "CreateVendorRecord", "tool_type": "connector_action", "requires_approval": "never", "write_capable": true, "source": "topic:InvokeConnectorTaskAction"}
+      ],
+      "knowledge": [
+        {"name": "Procurement Handbook", "kind": "sharepoint", "scope": "https://contoso.sharepoint.example/sites/procurement"}
+      ],
+      "guardrails": [
+        {"kind": "content_safety", "level": "high", "source": "cs_aiSettings"}
+      ],
+      "owners": [
+        {"name": "Procurement Team", "email": "procurement@contoso.example", "source": "copilot_studio:ownerid"}
+      ],
+      "channels": ["Microsoft Teams"],
+      "status": "active",
+      "version": "1.2.0",
+      "shared_with_everyone": true,
+      "created_on": "2025-10-20T10:00:00Z",
+      "modified_on": "2026-04-18T13:15:00Z",
+      "published_on": "2026-04-18T14:00:00Z",
+      "properties": {"template": "custom", "access_control_policy": "Any"}
+    },
+    {
+      "name": "Field Triage",
+      "external_id": "proj-svc:agent:field_triage",
+      "source_system": "azure_ai_foundry",
+      "kind": "agent",
+      "model": "GPT-4o",
+      "model_tier": "standard",
+      "instructions": "Triage incoming field-service tickets, classify severity, and suggest next steps for technicians.",
+      "tools": [
+        {"name": "TicketSearch", "tool_type": "file_search", "requires_approval": "always", "write_capable": false}
+      ],
+      "knowledge": [
+        {"name": "Service Manuals", "kind": "azure_search", "index_name": "svc-manuals"}
+      ],
+      "guardrails": [
+        {"kind": "content_safety", "source": "foundry_rai_config"}
+      ],
+      "owners": [
+        {"name": "Jordan Vance", "email": "jordan.vance@contoso.example", "source": "project_creator"}
+      ],
+      "channels": [],
+      "status": "active",
+      "version": "2",
+      "created_on": "2026-01-12T10:00:00Z",
+      "modified_on": "2026-06-05T10:00:00Z",
+      "properties": {"project": "svc-proj", "runtime_provider": "foundry_agents", "has_human_in_the_loop": true}
+    },
+    {
+      "name": "Claims Workflow",
+      "external_id": "proj-ins:agent:claims_workflow",
+      "source_system": "azure_ai_foundry",
+      "kind": "workflow",
+      "model": null,
+      "instructions": "Orchestrate the claims intake process: validate, route to a specialist agent, and finalize.",
+      "tools": [],
+      "knowledge": [],
+      "guardrails": [],
+      "owners": [
+        {"name": "Claims Platform", "email": "claims-platform@contoso.example", "source": "project_creator"}
+      ],
+      "channels": [],
+      "status": "active",
+      "version": "5",
+      "autonomous": true,
+      "created_on": "2026-03-01T10:00:00Z",
+      "modified_on": "2026-06-02T10:00:00Z",
+      "properties": {"project": "ins-proj", "orchestration_type": "workflow", "invoked_agents": ["Field Triage", "Research Scout"]}
+    },
+    {
+      "name": "Code Runner",
+      "external_id": "proj-eng:agent:code_runner",
+      "source_system": "azure_ai_foundry",
+      "kind": "agent",
+      "model": "GPT-4o",
+      "model_tier": "standard",
+      "instructions": "Assist engineers by running and debugging code snippets and calling internal developer tools.",
+      "tools": [
+        {"name": "CodeInterpreter", "tool_type": "code_interpreter", "requires_approval": "never", "write_capable": true},
+        {"name": "DevToolsMCP", "tool_type": "mcp", "server_url": "https://mcp.devtools.example/sse", "requires_approval": "never", "write_capable": false}
+      ],
+      "knowledge": [],
+      "guardrails": [
+        {"kind": "content_safety", "source": "foundry_rai_config"}
+      ],
+      "owners": [
+        {"name": "Platform Eng", "email": "platform-eng@contoso.example", "source": "project_creator"}
+      ],
+      "channels": [],
+      "status": "active",
+      "version": "3",
+      "created_on": "2026-02-14T10:00:00Z",
+      "modified_on": "2026-06-08T10:00:00Z",
+      "properties": {"project": "eng-proj", "runtime_provider": "foundry_agents"}
+    },
+    {
+      "name": "Research Scout",
+      "external_id": "proj-rnd:agent:research_scout",
+      "source_system": "azure_ai_foundry",
+      "kind": "agent",
+      "model": "GPT-4o",
+      "model_tier": "standard",
+      "instructions": "Search the web and internal sources to gather background research for the R&D team.",
+      "tools": [
+        {"name": "WebSearch", "tool_type": "web_browse", "requires_approval": "never", "write_capable": false}
+      ],
+      "knowledge": [
+        {"name": "R&D Wiki", "kind": "azure_search", "index_name": "rnd-wiki"}
+      ],
+      "guardrails": [],
+      "owners": [
+        {"name": "Ari Cohen", "email": "ari.cohen@contoso.example", "source": "project_creator"}
+      ],
+      "channels": [],
+      "status": "active",
+      "version": "1",
+      "created_on": "2026-03-22T10:00:00Z",
+      "modified_on": "2026-05-19T10:00:00Z",
+      "properties": {"project": "rnd-proj"}
+    },
+    {
+      "name": "Legacy Assistant",
+      "external_id": "proj-ops:agent:legacy_assistant",
+      "source_system": "azure_ai_foundry",
+      "kind": "agent",
+      "model": "unknown",
+      "instructions": "General operations assistant for the operations team. Answer common how-to questions.",
+      "tools": [
+        {"name": "KbSearch", "tool_type": "file_search", "requires_approval": "always", "write_capable": false}
+      ],
+      "knowledge": [
+        {"name": "Ops Knowledge", "kind": "azure_search", "index_name": "ops-kb"}
+      ],
+      "guardrails": [
+        {"kind": "content_safety", "source": "foundry_rai_config"}
+      ],
+      "owners": [
+        {"name": "Ops Team", "email": "ops@contoso.example", "source": "project_creator"}
+      ],
+      "channels": [],
+      "status": "active",
+      "version": "1",
+      "created_on": "2023-11-02T10:00:00Z",
+      "modified_on": "2024-01-10T10:00:00Z",
+      "properties": {"project": "ops-proj", "note": "migrated from legacy assistants api"}
+    },
+    {
+      "name": "Orphan Helper",
+      "external_id": "proj-x:agent:orphan_helper",
+      "source_system": "azure_ai_foundry",
+      "kind": "agent",
+      "model": "GPT-4o-mini",
+      "model_tier": "standard",
+      "instructions": "",
+      "tools": [],
+      "knowledge": [],
+      "guardrails": [],
+      "owners": [],
+      "channels": [],
+      "status": "active",
+      "version": "1",
+      "created_on": "2026-05-25T10:00:00Z",
+      "modified_on": "2026-05-25T10:00:00Z",
+      "properties": {"project": "x-proj"}
+    }
+  ]
+}
