@@ -22,6 +22,10 @@ class SourceSystem(StrEnum):
 
     COPILOT_STUDIO = "copilot_studio"
     AZURE_AI_FOUNDRY = "azure_ai_foundry"
+    # Google Cloud surfaces (kept per-surface so coverage rolls up honestly).
+    VERTEX_AI_AGENT_ENGINE = "vertex_ai_agent_engine"
+    AGENTSPACE = "agentspace"
+    DIALOGFLOW_CX = "dialogflow_cx"
 
 
 class AgentKind(StrEnum):
@@ -83,6 +87,9 @@ class KnowledgeKind(StrEnum):
     DATAVERSE_TABLE = "dataverse_table"
     FILE_UPLOAD = "file_upload"
     WEB = "web"
+    # Google Cloud grounding stores.
+    VERTEX_AI_SEARCH = "vertex_ai_search"
+    DISCOVERY_ENGINE_DATASTORE = "discovery_engine_datastore"
     OTHER = "other"
 
 
@@ -108,6 +115,12 @@ class KnowledgeRef(_Model):
     scope: str | None = None
     index_name: str | None = None
     connection_reference: str | None = None
+    # "agent" = bound to this agent (Copilot/Foundry); "app" = shared at the app
+    # level (e.g. a Gemini Enterprise engine data store, not agent-owned).
+    assignment: str = "agent"
+    # Name of the external / cross-trust-boundary system this grounds on (e.g.
+    # "sharepoint", "web"), or None if the source is native to the agent's platform.
+    external_source: str | None = None
 
 
 class GuardrailRef(_Model):

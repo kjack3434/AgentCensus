@@ -41,7 +41,7 @@
         {"name": "StoreHoursLookup", "tool_type": "function", "requires_approval": "never", "write_capable": false}
       ],
       "knowledge": [
-        {"name": "Storefront FAQ", "kind": "web", "scope": "https://shop.contoso.example/faq"}
+        {"name": "Storefront FAQ", "kind": "web", "scope": "https://shop.contoso.example/faq", "external_source": "web"}
       ],
       "guardrails": [],
       "owners": [
@@ -330,6 +330,71 @@
       "created_on": "2026-05-25T10:00:00Z",
       "modified_on": "2026-05-25T10:00:00Z",
       "properties": {"project": "x-proj"}
+    },
+    {
+      "name": "Returns ADK Agent",
+      "external_id": "projects/contoso-demo/locations/us-central1/reasoningEngines/4815162342",
+      "source_system": "vertex_ai_agent_engine",
+      "provider": "google",
+      "kind": "hosted",
+      "model": null,
+      "instructions": "",
+      "tools": [],
+      "knowledge": [],
+      "guardrails": [],
+      "owners": [
+        {"email": "service-1234@gcp-sa-aiplatform-re.iam.gserviceaccount.com", "source": "gcp:effective_identity"}
+      ],
+      "channels": [],
+      "status": "active",
+      "created_on": "2026-02-10T10:00:00Z",
+      "modified_on": "2026-06-12T08:30:00Z",
+      "properties": {"project": "contoso-demo", "location": "us-central1", "realization": "reasoning_engine", "framework": "google_adk", "entrypoint": "main:app", "telemetry_enabled": true, "behavior_recoverable_via_trace": true, "unobservable": ["model", "instructions", "tools"]}
+    },
+    {
+      "name": "Order Status Bot",
+      "external_id": "projects/contoso-demo/locations/global/agents/0a1b2c3d-1111-2222-3333-444455556666",
+      "source_system": "dialogflow_cx",
+      "provider": "google",
+      "kind": "agent",
+      "model": null,
+      "instructions": "Help customers check order status, update shipping addresses, and cancel orders. Always confirm the order id before making any change.",
+      "tools": [
+        {"name": "UpdateShippingAddress", "tool_type": "openapi", "requires_approval": "unknown", "write_capable": true, "source": "dialogflow_cx"},
+        {"name": "LookupOrder", "tool_type": "function", "requires_approval": "unknown", "write_capable": false, "source": "dialogflow_cx"}
+      ],
+      "knowledge": [
+        {"name": "orders-knowledge", "kind": "discovery_engine_datastore"}
+      ],
+      "guardrails": [],
+      "owners": [],
+      "channels": [],
+      "status": "active",
+      "created_on": "2026-03-05T10:00:00Z",
+      "modified_on": "2026-06-15T10:00:00Z",
+      "properties": {"project": "contoso-demo", "location": "global", "realization": "dialogflow_cx_agent", "unobservable": ["model"]}
+    },
+    {
+      "name": "Deep Research",
+      "external_id": "projects/contoso-demo/locations/global/collections/default_collection/engines/gemini-enterprise-demo/assistants/default_assistant/agents/deep_research",
+      "source_system": "agentspace",
+      "provider": "google",
+      "kind": "agent",
+      "model": null,
+      "instructions": "",
+      "tools": [],
+      "knowledge": [
+        {"name": "SharePoint HR", "kind": "discovery_engine_datastore", "assignment": "app", "external_source": "sharepoint", "connection_reference": "sharepoint-hr-datastore"},
+        {"name": "Policies (Drive)", "kind": "discovery_engine_datastore", "assignment": "app", "connection_reference": "gdrive-policies-datastore"}
+      ],
+      "guardrails": [],
+      "owners": [],
+      "channels": [],
+      "status": "active",
+      "shared_with_everyone": true,
+      "created_on": "2026-01-20T09:00:00Z",
+      "modified_on": "2026-05-30T14:00:00Z",
+      "properties": {"project": "contoso-demo", "location": "global", "realization": "agentspace_agent", "subtype": "managedAgent", "engine": "gemini-enterprise-demo", "description": "Gathers, analyzes, and understands information from internal and external sources; generates a plan, an in-depth report, and a summary.", "unobservable": ["model", "instructions", "tools"]}
     }
   ]
 }

@@ -183,10 +183,13 @@ def copilot_bot_to_agent(
                 )
 
         elif ctype == COMPONENT_KNOWLEDGE:
+            kkind = _knowledge_kind(data)
             knowledge.append(
                 KnowledgeRef(
                     name=comp.get("name") or comp.get("schemaname") or "knowledge",
-                    kind=_knowledge_kind(data),
+                    kind=kkind,
+                    # Public-web grounding reaches outside the tenant's trust boundary.
+                    external_source="web" if kkind == KnowledgeKind.WEB else None,
                 )
             )
 
@@ -390,5 +393,461 @@ def foundry_def_to_agent(raw: dict[str, Any], *, project_external_id: str = "fou
         guardrails=guardrails,
         status=str(n["status"] or "active"),
         version=n["version"] or None,
+        properties=props,
+    )
+
+
+# ── Google Cloud ───────────────────────────────────────────────────────────
+#
+# Three surfaces, very different visibility. The guiding rule ("don't score what
+# discovery can't see") shows up here as ``properties["unobservable"]``: a list
+# of fields the API genuinely does not expose for an agent, which the finding
+# rules consult so they never fire on a value that is *unknown* rather than
+# *empty*. Agent Engine and Agentspace are code-deployed and opaque; only
+# Dialogflow CX exposes real instructions + tools.
+
+# Framework hints we can sometimes infer from a reasoning engine's spec blob.
+_FRAMEWORK_HINTS = {
+    "google.adk": "google_adk",
+    "adk": "google_adk",
+    "langgraph": "langgraph",
+    "langchain": "langchain",
+    "crewai": "crewai",
+    "llama_index": "llama_index",
+    "llamaindex": "llama_index",
+}
+
+
+def _leaf(resource: str | None) -> str:
+    """Last path segment of a GCP resource name."""
+    return resource.rstrip("/").split("/")[-1] if resource else ""
+
+
+def _reasoning_framework(spec: dict[str, Any]) -> str | None:
+    # Newer (sourceCodeSpec) deployments expose the framework as a real field.
+    fw = spec.get("agentFramework")
+    if isinstance(fw, str) and fw:
+        return fw.replace("-", "_").lower()  # e.g. "google-adk" -> "google_adk"
+    if not spec:
+        return None
+    blob = json.dumps(spec).lower()
+    for needle, label in _FRAMEWORK_HINTS.items():
+        if needle in blob:
+            return label
+    return None
+
+
+def _engine_env(spec: dict[str, Any]) -> dict[str, str]:
+    """Flatten ``spec.deploymentSpec.env`` (list of {name,value}) into a dict."""
+    env = (spec.get("deploymentSpec") or {}).get("env") or []
+    return {
+        str(e["name"]): str(e.get("value", ""))
+        for e in env
+        if isinstance(e, dict) and e.get("name")
+    }
+
+
+# Low-code (Agent Designer) tool keys -> (ToolType, default display name).
+_LOWCODE_TOOL_TYPES = {
+    "googleSearchTool": (ToolType.WEB_BROWSE, "Google Search"),
+    "urlContextTool": (ToolType.WEB_BROWSE, "URL Context"),
+    "vertexAiSearchTool": (ToolType.FILE_SEARCH, "Vertex AI Search"),
+    "codeExecutionTool": (ToolType.CODE_INTERPRETER, "Code Execution"),
+    "functionTool": (ToolType.FUNCTION, "Function"),
+    "openApiTool": (ToolType.OPENAPI, "OpenAPI"),
+    "mcpTool": (ToolType.MCP, "MCP"),
+    "agentTool": (ToolType.OTHER, "Sub-agent"),
+}
+
+
+def _lowcode_root_llm(lowcode: dict[str, Any]) -> dict[str, Any] | None:
+    """The root node's ``llmAgent`` config (instruction / model / tools), if any."""
+    root_id = lowcode.get("rootAgentId")
+    nodes = [n for n in (lowcode.get("nodes") or []) if isinstance(n, dict)]
+    root = next((n for n in nodes if n.get("id") == root_id), nodes[0] if nodes else None)
+    cfg = root.get("llmAgent") if isinstance(root, dict) else None
+    return cfg if isinstance(cfg, dict) else None
+
+
+def _lowcode_tools(raw_tools: Any) -> list[ToolRef]:
+    tools: list[ToolRef] = []
+    for t in raw_tools or []:
+        if not isinstance(t, dict):
+            continue
+        for key, cfg in t.items():  # each tool is a single-key dict
+            ttype, default_name = _LOWCODE_TOOL_TYPES.get(key, (ToolType.OTHER, key))
+            name = default_name
+            if isinstance(cfg, dict):
+                name = cfg.get("name") or cfg.get("displayName") or cfg.get("serverLabel") or name
+            tools.append(
+                ToolRef(
+                    name=name,
+                    tool_type=ttype,
+                    requires_approval="unknown",
+                    write_capable=infer_write_capable(name, ttype),
+                    source="lowcode_agent",
+                )
+            )
+            break
+    return tools
+
+
+def _lowcode_display_name(lowcode: dict[str, Any]) -> str:
+    """Friendly name of a lowcodeAgent (root node displayName, else description)."""
+    root_id = lowcode.get("rootAgentId")
+    for n in lowcode.get("nodes") or []:
+        if isinstance(n, dict) and n.get("id") == root_id and n.get("displayName"):
+            return str(n["displayName"])
+    return str(lowcode.get("description") or _leaf(lowcode.get("name")))
+
+
+def _lowcode_behavior(
+    lowcode: dict[str, Any] | None,
+) -> tuple[str | None, str | None, str, list[ToolRef], set[str]]:
+    """Pull (model, model_tier, instructions, tools, observed) from a lowcodeAgent.
+
+    ``observed`` names the fields actually present, so callers can drop exactly
+    those from their ``unobservable`` set.
+    """
+    cfg = _lowcode_root_llm(lowcode) if lowcode else None
+    model: str | None = None
+    model_tier: str | None = None
+    instructions = ""
+    tools: list[ToolRef] = []
+    observed: set[str] = set()
+    if cfg is not None:
+        if cfg.get("model"):
+            model = str(cfg["model"])
+            ml = model.lower()
+            model_tier = "preview" if "preview" in ml else "experimental" if "exp" in ml else None
+            observed.add("model")
+        if isinstance(cfg.get("instruction"), str):
+            instructions = cfg["instruction"]
+            observed.add("instructions")
+        if "tools" in cfg:
+            tools = _lowcode_tools(cfg.get("tools"))
+            observed.add("tools")
+    return model, model_tier, instructions, tools, observed
+
+
+def gcp_reasoning_engine_to_agent(
+    raw: dict[str, Any],
+    *,
+    project: str,
+    location: str,
+    lowcode: dict[str, Any] | None = None,
+) -> Agent:
+    """Vertex AI Agent Engine (reasoningEngines) — code-deployed.
+
+    For a *code-first* deploy the model, system prompt, and tools live inside the
+    package and aren't returned by the API, so they're marked unobservable rather
+    than guessed (``spec.classMethods`` are session/query methods, NOT tools). What
+    the API does expose is captured: framework, entry point, runtime identity, and
+    telemetry config (if telemetry + content-capture are on, behavior is recoverable
+    from Cloud Trace once invoked).
+
+    For a *no-code* (Agent Designer) deploy, the matching ``lowcodeAgent`` design
+    config IS available and is passed in as ``lowcode`` — its real instruction,
+    model, and tools are applied and removed from the unobservable set, so the agent
+    is scored on its actual behavior instead of being suppressed.
+    """
+    name_path = raw.get("name") or ""
+    display = raw.get("displayName") or _leaf(name_path) or "Reasoning Engine"
+    raw_spec = raw.get("spec")
+    spec: dict[str, Any] = raw_spec if isinstance(raw_spec, dict) else {}
+
+    props: dict[str, Any] = {
+        "project": project,
+        "location": location,
+        "realization": "reasoning_engine",
+    }
+
+    # No-code design config (lowcodeAgent) exposes the real behavior.
+    model, model_tier, instructions, tools, observed = _lowcode_behavior(lowcode)
+    if observed:
+        props["source_config"] = "lowcode_agent"
+        props["lowcode_agent"] = _leaf(lowcode.get("name") if lowcode else None)
+    unobservable = [f for f in ("model", "instructions", "tools") if f not in observed]
+    if unobservable:
+        props["unobservable"] = unobservable
+
+    framework = _reasoning_framework(spec)
+    if framework:
+        props["framework"] = framework
+
+    py = (spec.get("sourceCodeSpec") or {}).get("pythonSpec") or {}
+    if isinstance(py, dict):
+        entry = ":".join(s for s in (py.get("entrypointModule"), py.get("entrypointObject")) if s)
+        if entry:
+            props["entrypoint"] = entry
+
+    env = _engine_env(spec)
+    telemetry_on = env.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "").lower() == "true"
+    captures = env.get("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "").lower() == "true"
+    if telemetry_on:
+        props["telemetry_enabled"] = True
+    if telemetry_on and captures:
+        # Discovery still can't read these, but they're recoverable out-of-band.
+        props["behavior_recoverable_via_trace"] = True
+
+    if raw.get("description"):
+        props["description"] = raw["description"]
+
+    # The runtime service identity the agent acts as.
+    owners: list[OwnerRef] = []
+    identity = spec.get("effectiveIdentity")
+    if isinstance(identity, str) and identity:
+        owners.append(OwnerRef(email=identity, source="gcp:effective_identity"))
+
+    return Agent(
+        name=display,
+        external_id=name_path
+        or f"projects/{project}/locations/{location}/reasoningEngines/{display}",
+        source_system=SourceSystem.VERTEX_AI_AGENT_ENGINE,
+        provider="google",
+        kind=AgentKind.HOSTED,
+        model=model,
+        model_tier=model_tier,
+        instructions=instructions,
+        tools=tools,
+        owners=owners,
+        created_on=raw.get("createTime"),
+        modified_on=raw.get("updateTime"),
+        properties=props,
+    )
+
+
+def _dialogflow_instructions(playbooks: list[dict[str, Any]]) -> str:
+    """Build an instructions summary from playbook goal + instruction steps."""
+    parts: list[str] = []
+    for pb in playbooks:
+        if not isinstance(pb, dict):
+            continue
+        goal = str(pb.get("goal") or "").strip()
+        if goal:
+            parts.append(goal)
+        instruction = pb.get("instruction")
+        steps = instruction.get("steps") if isinstance(instruction, dict) else None
+        for step in steps or []:
+            if isinstance(step, dict):
+                text = str(step.get("text") or "").strip()
+                if text:
+                    parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def gcp_dialogflow_to_agent(
+    agent_raw: dict[str, Any],
+    playbooks: list[dict[str, Any]] | None = None,
+    tools_raw: list[dict[str, Any]] | None = None,
+    *,
+    project: str,
+    location: str,
+) -> Agent:
+    """Dialogflow CX agent — the one GCP surface exposing real instructions + tools."""
+    playbooks = playbooks or []
+    tools_raw = tools_raw or []
+    name_path = agent_raw.get("name") or ""
+    display = agent_raw.get("displayName") or _leaf(name_path) or "Dialogflow Agent"
+
+    tools: list[ToolRef] = []
+    knowledge: list[KnowledgeRef] = []
+    for t in tools_raw:
+        if not isinstance(t, dict):
+            continue
+        tname = t.get("displayName") or _leaf(t.get("name")) or "tool"
+        if "dataStoreSpec" in t or "dataStoreConnections" in t:
+            knowledge.append(
+                KnowledgeRef(name=tname, kind=KnowledgeKind.DISCOVERY_ENGINE_DATASTORE)
+            )
+            continue
+        if "openApiSpec" in t:
+            ttype = ToolType.OPENAPI
+        elif "functionSpec" in t:
+            ttype = ToolType.FUNCTION
+        else:
+            ttype = ToolType.OTHER
+        tools.append(
+            ToolRef(
+                name=tname,
+                tool_type=ttype,
+                requires_approval="unknown",  # Dialogflow carries no approval gate
+                write_capable=infer_write_capable(tname, ttype),
+                source="dialogflow_cx",
+            )
+        )
+
+    return Agent(
+        name=display,
+        external_id=name_path or f"projects/{project}/locations/{location}/agents/{display}",
+        source_system=SourceSystem.DIALOGFLOW_CX,
+        provider="google",
+        kind=AgentKind.AGENT,
+        model=None,  # the underlying LLM id is not exposed → suppress SWEEP-007
+        instructions=_dialogflow_instructions(playbooks),
+        tools=tools,
+        knowledge=knowledge,
+        created_on=agent_raw.get("createTime"),
+        modified_on=agent_raw.get("updateTime"),
+        properties={
+            "project": project,
+            "location": location,
+            "realization": "dialogflow_cx_agent",
+            "unobservable": ["model"],
+        },
+    )
+
+
+def _agentspace_subtype(agent: dict[str, Any]) -> str:
+    """Classify an Agentspace/Gemini Enterprise agent by its *Definition key."""
+    for key in agent:
+        if key.endswith("Definition"):
+            return key[: -len("Definition")]  # managedAgent / adkAgent / dialogflowAgent / a2aAgent
+    return "unknown"
+
+
+# Third-party / cross-cloud data connectors (NOT native to Google) — keyword -> label.
+# Conservative set to avoid false positives when scanning a data store's JSON.
+_EXTERNAL_DATA_KEYWORDS = {
+    "sharepoint": "sharepoint",
+    "onedrive": "onedrive",
+    "office365": "microsoft_365",
+    "microsoft": "microsoft",
+    "confluence": "confluence",
+    "jira": "jira",
+    "servicenow": "servicenow",
+    "salesforce": "salesforce",
+    "slack": "slack",
+    "dropbox": "dropbox",
+}
+
+
+def _external_data_source(resource: dict[str, Any], ds_id: str, ds_name: str) -> str | None:
+    """Name the external/cross-cloud system a data store connects to, else None.
+
+    Best-effort: scans the data store id, display name, and resource body for known
+    third-party connector keywords. Native Google stores (Drive, Vertex AI Search,
+    generic) match nothing and return None.
+    """
+    blob = f"{ds_id} {ds_name} {json.dumps(resource or {})}".lower()
+    for needle, label in _EXTERNAL_DATA_KEYWORDS.items():
+        if needle in blob:
+            return label
+    return None
+
+
+def _agentspace_provisioned_engine(agent: dict[str, Any]) -> str | None:
+    """A custom ADK agent may point at a provisioned reasoning engine — dedup key."""
+    for key in ("adkAgentDefinition", "managedAgentDefinition", "a2aAgentDefinition"):
+        defn = agent.get(key)
+        if isinstance(defn, dict):
+            prov = defn.get("provisionedReasoningEngine")
+            if isinstance(prov, dict) and prov.get("reasoningEngine"):
+                return str(prov["reasoningEngine"])
+    return None
+
+
+def gcp_agentspace_agent_to_agent(
+    agent: dict[str, Any],
+    *,
+    project: str,
+    location: str,
+    engine: dict[str, Any] | None = None,
+    lowcode_by_engine: dict[str, dict[str, Any]] | None = None,
+    data_stores: dict[str, dict[str, Any]] | None = None,
+) -> Agent:
+    """Agentspace / Gemini Enterprise agent (engine -> assistant -> agent).
+
+    Covers the built-in managed agents (Deep Research, Idea Generation) and custom
+    ADK / Dialogflow / A2A agents. Behavior (model / prompt / tools) is normally not
+    exposed at the agent level, so it is marked unobservable — UNLESS the agent is
+    backed by an Agent Engine runtime whose no-code design config (lowcodeAgent) is
+    available, in which case the real behavior is grafted in and attributed to the
+    underlying agent via ``properties.behavior_source`` (so the Gemini agent stays
+    the primary record but shows where its behavior came from).
+    """
+    name_path = agent.get("name") or ""
+    display = agent.get("displayName") or _leaf(name_path) or "Agentspace Agent"
+
+    props: dict[str, Any] = {
+        "project": project,
+        "location": location,
+        "realization": "agentspace_agent",
+        "subtype": _agentspace_subtype(agent),
+    }
+    if agent.get("description"):
+        props["description"] = agent["description"]
+    if engine:
+        props["engine"] = _leaf(engine.get("name"))
+
+    # Engine-level grounding stores carry over to the agent; resolve ids to friendly
+    # names and flag external (Microsoft) sources. NOTE: these are the Gemini Enterprise
+    # app's data stores (shared across the app), not agent-owned grounding.
+    knowledge: list[KnowledgeRef] = []
+    lookup = data_stores or {}
+    data_store_ids = (engine or {}).get("dataStoreIds") if engine else None
+    for ds in data_store_ids or []:
+        ds_id = str(ds)
+        resource = lookup.get(ds_id, {})
+        ds_name = resource.get("displayName") or ds_id
+        knowledge.append(
+            KnowledgeRef(
+                name=ds_name,
+                kind=KnowledgeKind.DISCOVERY_ENGINE_DATASTORE,
+                connection_reference=ds_id,
+                assignment="app",  # engine-level: shared across the Gemini Enterprise app
+                external_source=_external_data_source(resource, ds_id, ds_name),
+            )
+        )
+
+    scope = str((agent.get("sharingConfig") or {}).get("scope") or "").lower()
+    shared = scope in ("all_users", "all", "everyone")
+    state = str(agent.get("state") or "").upper()
+    status = "inactive" if state in ("DISABLED", "SUSPENDED") else "active"
+
+    # Invocation mode is recorded as a *posture* signal only. AUTOMATIC means the
+    # assistant can auto-route to this agent without the user explicitly selecting
+    # it, but a human is still driving the conversation — so (unlike Copilot's
+    # headless external trigger) it is NOT treated as an autonomous agent and does
+    # not fire SWEEP-004 / amplify SWEEP-011.
+    invocation = (agent.get("agentInvocationSpec") or {}).get("invocationMode")
+    if invocation:
+        props["invocation_mode"] = invocation
+
+    # Behavior is grafted from the backing runtime's no-code design config, if found.
+    prov_name = _agentspace_provisioned_engine(agent)
+    engine_id = _leaf(prov_name) if prov_name else None
+    lowcode = (lowcode_by_engine or {}).get(engine_id) if engine_id else None
+    model, model_tier, instructions, tools, observed = _lowcode_behavior(lowcode)
+    if observed and lowcode is not None:
+        props["behavior_source"] = {
+            "kind": "agent_engine",
+            "engine_id": engine_id,
+            "lowcode_agent": _leaf(lowcode.get("name")),
+            "name": _lowcode_display_name(lowcode),
+        }
+    unobservable = [f for f in ("model", "instructions", "tools") if f not in observed]
+    if unobservable:
+        props["unobservable"] = unobservable
+
+    external_id = prov_name or name_path
+    if not external_id:
+        external_id = f"projects/{project}/locations/{location}/agents/{display}"
+
+    return Agent(
+        name=display,
+        external_id=external_id,
+        source_system=SourceSystem.AGENTSPACE,
+        provider="google",
+        kind=AgentKind.AGENT,
+        model=model,
+        model_tier=model_tier,
+        instructions=instructions,
+        tools=tools,
+        knowledge=knowledge,
+        status=status,
+        shared_with_everyone=shared,
+        created_on=agent.get("createTime"),
+        modified_on=agent.get("updateTime"),
         properties=props,
     )

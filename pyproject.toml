@@ -1,7 +1,7 @@
 [project]
 name = "agentcensus"
-version = "0.1.0"
-description = "Discover AI agents (Microsoft Copilot Studio + Azure AI Foundry) and emit a self-contained HTML governance report."
+version = "0.2.0"
+description = "Discover AI agents (Microsoft Copilot Studio + Azure AI Foundry, and Google Cloud) and emit a self-contained HTML governance report."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -31,6 +31,9 @@ dependencies = [
 [project.optional-dependencies]
 # Optional: prettier, colored terminal summary (`uv sync --extra rich`).
 rich = ["rich>=13"]
+# Optional: Google Cloud service-account-key / ADC auth (`uv sync --extra gcp`).
+# Not needed for `--auth gcloud` (shell-out), the demo path, or Microsoft sources.
+gcp = ["google-auth>=2.30"]
 
 [project.urls]
 Homepage = "https://github.com/kjack3434/AgentCensus"

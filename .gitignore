@@ -27,6 +27,19 @@ htmlcov/
 .env
 .env.*
 
+# Credentials / service-account keys — NEVER commit. The tool reads these by path
+# (e.g. --gcp-key-file key.json), so guard the common filenames defensively.
+*.pem
+*.key
+*.p12
+*.pfx
+key.json
+*-key.json
+*-sa.json
+service-account*.json
+client_secret*.json
+credentials.json
+
 # Node (only used locally to build the demo GIF)
 node_modules/
 
@@ -49,6 +62,7 @@ AGENTS.md
 .cursor/
 .windsurf/
 .aider*
+.playwright-mcp/
 
 # Editor settings
 .vscode/

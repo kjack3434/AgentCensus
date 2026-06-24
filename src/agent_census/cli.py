@@ -12,7 +12,7 @@ import typer
 
 from . import __version__
 from .errors import DiscoveryError
-from .live.auth import build_auth
+from .live.auth import build_gcp_auth, build_microsoft_auth
 from .models import SEVERITY_RANK, Severity, SweepResult
 from .report import render_html, render_json
 from .sources import build_source
@@ -20,21 +20,18 @@ from .sources import build_source
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    help="Discover AI agents (Copilot Studio + Azure AI Foundry) and emit an HTML report.",
+    help=(
+        "Discover AI agents (Copilot Studio, Azure AI Foundry, Google Cloud) "
+        "and emit an HTML report."
+    ),
 )
 
 
-class SourceOpt(StrEnum):
-    all = "all"
-    copilot_studio = "copilot-studio"
-    foundry = "foundry"
-    demo = "demo"
-
-
 class AuthMode(StrEnum):
-    device = "device"  # interactive device-code; runs as the signed-in user
-    app = "app"  # client-credentials; service principal (headless/CI)
-    cli = "cli"  # reuse an existing `az login` session; no app registration
+    cli = "cli"  # reuse the local cloud CLI session (Microsoft: az · Google: gcloud)
+    app = "app"  # service credential (Microsoft: Entra app+secret · Google: SA key)
+    device = "device"  # Entra device-code interactive sign-in (Microsoft only)
+    adc = "adc"  # Application Default Credentials (Google only)
 
 
 class OutputFormat(StrEnum):
@@ -42,7 +39,48 @@ class OutputFormat(StrEnum):
     json = "json"
 
 
-_SOURCE_LABEL = {"copilot_studio": "Copilot Studio", "azure_ai_foundry": "Azure AI Foundry"}
+# Connector keys grouped by which provider's auth they need.
+_MS_KEYS = ("copilot_studio", "foundry")
+_GCP_KEYS = ("gcp",)
+_ALL_KEYS = (*_MS_KEYS, *_GCP_KEYS)
+
+
+def _parse_sources(value: str) -> list[str]:
+    """Parse a ``--source`` value (comma list, or 'all' / 'demo') into connector keys."""
+    items = [v.strip().lower().replace("-", "_") for v in value.split(",") if v.strip()]
+    if not items:
+        return list(_ALL_KEYS)
+    keys: list[str] = []
+    for it in items:
+        if it == "demo":
+            return ["demo"]
+        if it == "all":
+            keys.extend(_ALL_KEYS)
+        elif it in _ALL_KEYS:
+            keys.append(it)
+        else:
+            raise typer.BadParameter(
+                f"unknown source {it!r} — choose from: all, copilot-studio, foundry, gcp, demo"
+            )
+    seen: set[str] = set()
+    return [k for k in keys if not (k in seen or seen.add(k))]
+
+
+_SOURCE_LABEL = {
+    "copilot_studio": "Copilot Studio",
+    "azure_ai_foundry": "Azure AI Foundry",
+    "vertex_ai_agent_engine": "Vertex AI Agent Engine",
+    "agentspace": "Agentspace",
+    "dialogflow_cx": "Dialogflow CX",
+}
+
+
+def _split_csv(value: str | None) -> list[str] | None:
+    """Split a comma-separated CLI value into a clean list (or None if empty)."""
+    if not value:
+        return None
+    items = [v.strip() for v in value.split(",") if v.strip()]
+    return items or None
 
 
 def _print_summary(result: SweepResult, out: Path) -> None:
@@ -72,20 +110,22 @@ def sweep(
     demo: bool = typer.Option(
         False, "--demo", help="Use the bundled synthetic estate (implies --source demo)."
     ),
-    source: SourceOpt = typer.Option(
-        SourceOpt.all,
+    source: str = typer.Option(
+        "all",
         "--source",
         help=(
-            "Discovery source: all (Copilot Studio + Foundry), copilot-studio, foundry, or demo."
+            "Connector(s): 'all' (Copilot Studio + Foundry + GCP), 'demo', or a comma list of "
+            "copilot-studio, foundry, gcp (e.g. --source foundry,gcp). Unreachable providers are "
+            "skipped with a warning."
         ),
-        case_sensitive=False,
     ),
     auth_mode: AuthMode = typer.Option(
-        AuthMode.device,
+        AuthMode.cli,
         "--auth",
         help=(
-            "Live auth: device (sign in as yourself), app (service principal), "
-            "or cli (reuse your `az login`; no app registration)."
+            "Auth strategy, applied per provider: cli (reuse az / gcloud) · app (Entra app+secret "
+            "/ GCP service-account key) · device (Entra device-code, Microsoft only) · adc (Google "
+            "ADC)."
         ),
         case_sensitive=False,
     ),
@@ -117,7 +157,7 @@ def sweep(
         None,
         "--client-secret",
         envvar="AGENTCENSUS_CLIENT_SECRET",
-        help="Client secret (required for --auth app); prefer the env var.",
+        help="Entra client secret (Microsoft --auth app); prefer the env var.",
     ),
     environment: str | None = typer.Option(
         None,
@@ -131,6 +171,29 @@ def sweep(
         envvar="AGENTCENSUS_SUBSCRIPTION",
         help="Limit Foundry discovery to one Azure subscription id.",
     ),
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        envvar="AGENTCENSUS_PROJECT",
+        help="GCP project id(s) to scan, comma-separated (no org auto-enumeration).",
+    ),
+    location: str | None = typer.Option(
+        None,
+        "--location",
+        envvar="AGENTCENSUS_LOCATION",
+        help="GCP region(s) to scan, comma-separated (default: a GA region set + global).",
+    ),
+    gcp_key_file: str | None = typer.Option(
+        None,
+        "--gcp-key-file",
+        envvar="AGENTCENSUS_GCP_KEY_FILE",
+        help="GCP service-account JSON key (Google --auth app).",
+    ),
+    gcp_impersonate: str | None = typer.Option(
+        None,
+        "--gcp-impersonate",
+        help="GCP service-account email to impersonate (Google --auth cli).",
+    ),
     open_report: bool = typer.Option(
         False, "--open", help="Open the report in your browser when done."
     ),
@@ -143,29 +206,52 @@ def sweep(
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the terminal summary."),
 ) -> None:
     """Discover agents and write a report."""
-    if demo:
-        source = SourceOpt.demo
+    keys = ["demo"] if demo else _parse_sources(source)
 
-    if source is SourceOpt.demo:
-        discoverer = build_source("demo", stale_days=stale_days)
+    auth_notes: list[str] = []  # per-provider status, shown in the summary
+    skip_warnings: list[str] = []  # providers skipped for lack of credentials
+
+    if keys == ["demo"]:
+        discoverer = build_source(["demo"], stale_days=stale_days)
     else:
-        try:
-            auth = build_auth(
-                mode=auth_mode.value,
-                client_id=client_id,
-                tenant=tenant,
-                client_secret=client_secret,
+        strategy = auth_mode.value
+        ms_auth = gcp_auth = None
+
+        if any(k in _MS_KEYS for k in keys):
+            ms_auth, note = build_microsoft_auth(
+                strategy, client_id=client_id, tenant=tenant, client_secret=client_secret
             )
-        except DiscoveryError as exc:
+            auth_notes.append(f"Microsoft: {note}")
+            if ms_auth is None:
+                skip_warnings.append(f"Microsoft connectors skipped — {note}")
+        if any(k in _GCP_KEYS for k in keys):
+            gcp_auth, note = build_gcp_auth(
+                strategy, gcp_key_file=gcp_key_file, gcp_impersonate=gcp_impersonate
+            )
+            auth_notes.append(f"Google Cloud: {note}")
+            if gcp_auth is None:
+                skip_warnings.append(f"Google Cloud (gcp) skipped — {note}")
+
+        runnable = [
+            k
+            for k in keys
+            if (k in _MS_KEYS and ms_auth is not None) or (k in _GCP_KEYS and gcp_auth is not None)
+        ]
+        if not runnable:
+            detail = "; ".join(auth_notes) or "no credentials available"
             raise typer.BadParameter(
-                f"{exc}. Or run `agentcensus sweep --demo` to see a sample report."
-            ) from exc
+                f"{detail}. Provide credentials for a selected provider, or run "
+                "`agentcensus sweep --demo` to see a sample report."
+            )
         discoverer = build_source(
-            source.value,
+            runnable,
             stale_days=stale_days,
-            auth=auth,
+            ms_auth=ms_auth,
+            gcp_auth=gcp_auth,
             environment=environment,
             subscription=subscription,
+            projects=_split_csv(project),
+            locations=_split_csv(location),
         )
 
     try:
@@ -174,10 +260,13 @@ def sweep(
         typer.echo(f"discovery failed: {exc}", err=True)
         raise typer.Exit(code=3) from exc
 
+    if skip_warnings:  # surface skipped providers in the report's warnings too
+        result.warnings = [*skip_warnings, *result.warnings]
+
     if out is None:
         ext = "json" if fmt is OutputFormat.json else "html"
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        out = Path("reports") / f"agentcensus-{source.value}-{stamp}.{ext}"
+        out = Path("reports") / f"agentcensus-{result.meta.source}-{stamp}.{ext}"
 
     rendered = render_json(result) if fmt is OutputFormat.json else render_html(result)
     try:
@@ -189,6 +278,8 @@ def sweep(
         raise typer.Exit(code=4) from exc
 
     if not quiet:
+        if auth_notes:
+            typer.echo("Auth — " + " · ".join(auth_notes))
         _print_summary(result, out)
 
     if open_report:

@@ -49,6 +49,17 @@ def _has_external_channel(agent: Agent) -> bool:
     return any(c.strip().lower() in EXTERNAL_CHANNELS for c in agent.channels)
 
 
+def _unobservable(agent: Agent, field: str) -> bool:
+    """True if discovery genuinely can't see ``field`` for this agent.
+
+    Some sources (notably code-deployed GCP Agent Engine / Agentspace agents) keep
+    the model, system prompt, and tools inside the deployment package, so the API
+    returns *unknown*, not *empty*. Rules consult this to avoid scoring a value
+    they can't actually observe — "don't score what discovery can't see".
+    """
+    return field in (agent.properties.get("unobservable") or ())
+
+
 # ── Rules ────────────────────────────────────────────────────────────────────
 # Each rule: (agent, now, stale_days) -> Finding | None
 
@@ -115,6 +126,8 @@ def _rule_external_mcp(agent: Agent, now: datetime, stale_days: int) -> Finding 
 
 
 def _rule_ungoverned_model(agent: Agent, now: datetime, stale_days: int) -> Finding | None:
+    if _unobservable(agent, "model"):
+        return None  # API doesn't expose the model — unknown, not ungoverned
     tier = (agent.model_tier or "").lower()
     model = (agent.model or "").strip().lower()
     if tier in ("experimental", "preview") or model in ("", "unknown"):
@@ -146,7 +159,72 @@ def _rule_broad_channels(agent: Agent, now: datetime, stale_days: int) -> Findin
     return None
 
 
+def _rule_broadly_shared_capable(agent: Agent, now: datetime, stale_days: int) -> Finding | None:
+    """Broad sharing is only scored when paired with a capability that makes the
+    reach matter — a write tool, external (cross-cloud) grounding, an external
+    channel, or autonomous invocation. A broadly-shared read-only Q&A agent is
+    common and intended, so it is deliberately NOT flagged.
+
+    Cross-provider: ``shared_with_everyone`` / ``multi_tenant`` exist on Copilot
+    Studio (``Any`` / multi-tenant access) and GCP Agentspace (``ALL_USERS``);
+    Foundry exposes no such per-agent signal.
+    """
+    if not (agent.shared_with_everyone or agent.multi_tenant):
+        return None
+    amplifiers = []
+    if any(t.write_capable for t in agent.tools):
+        amplifiers.append("a write-capable tool")
+    if any(k.external_source for k in agent.knowledge):
+        amplifiers.append("external grounding data")
+    if _has_external_channel(agent):
+        amplifiers.append("an external channel")
+    if agent.autonomous:
+        amplifiers.append("autonomous invocation")
+    if not amplifiers:
+        return None
+    reach = "any tenant" if agent.multi_tenant else "everyone in the organization"
+    return Finding(
+        rule_id="SWEEP-011",
+        title="Broadly shared agent with elevated capability",
+        severity=Severity.MEDIUM,
+        message=(
+            f"Agent is shared with {reach} and carries {', '.join(amplifiers)} — "
+            "its blast radius matches its broad audience."
+        ),
+        remediation=(
+            "Restrict who can use the agent, or constrain its tools / data / triggers "
+            "to match the intended audience."
+        ),
+    )
+
+
+def _rule_external_data_connection(agent: Agent, now: datetime, stale_days: int) -> Finding | None:
+    """The agent can ground on data from outside its own platform / trust boundary —
+    a cross-cloud or third-party data connection (e.g. a GCP agent reaching Microsoft
+    SharePoint, or a Copilot agent grounding on the public web). Cross-provider: each
+    normalizer sets ``KnowledgeRef.external_source`` for its own out-of-boundary sources.
+    """
+    sources = sorted({k.external_source for k in agent.knowledge if k.external_source})
+    if not sources:
+        return None
+    return Finding(
+        rule_id="SWEEP-012",
+        title="External / cross-cloud data connection",
+        severity=Severity.MEDIUM,
+        message=(
+            f"Agent can ground on data outside its platform: {', '.join(sources)}. "
+            "Data crossing a trust boundary widens the exfiltration / data-governance surface."
+        ),
+        remediation=(
+            "Confirm the external data connection is intended and least-privilege; review what "
+            "it exposes and who can reach it."
+        ),
+    )
+
+
 def _rule_empty_instructions(agent: Agent, now: datetime, stale_days: int) -> Finding | None:
+    if _unobservable(agent, "instructions"):
+        return None  # code-deployed agent — instructions aren't exposed by the API
     placeholder = agent.instructions.strip().lower() in PLACEHOLDER_INSTRUCTIONS
     if agent.instructions_length == 0 or placeholder:
         return Finding(
@@ -183,6 +261,8 @@ _RULES = (
     _rule_external_mcp,
     _rule_ungoverned_model,
     _rule_broad_channels,
+    _rule_broadly_shared_capable,
+    _rule_external_data_connection,
     _rule_empty_instructions,
     _rule_stale,
 )
@@ -202,11 +282,19 @@ def evaluate(
 
 
 def categorize(agent: Agent) -> str:
-    """Bucket an agent for the report's category chip."""
+    """Bucket an agent by audience / reach for the report's category chip.
+
+    Exposure gradient: internal < org_wide < customer_facing (autonomous is its own
+    bucket, highest precedence). 'Shared with everyone' is org-wide *internal* reach
+    (Copilot 'Any', GCP ALL_USERS) — distinct from genuinely external-facing, which
+    means multi-tenant or reachable on an external channel.
+    """
     if agent.autonomous:
         return "autonomous"
-    if agent.shared_with_everyone or agent.multi_tenant or _has_external_channel(agent):
+    if agent.multi_tenant or _has_external_channel(agent):
         return "customer_facing"
+    if agent.shared_with_everyone:
+        return "org_wide"
     return "internal"
 
 

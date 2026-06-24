@@ -20,7 +20,7 @@ def _data_blob(html: str) -> str:
 
 
 def test_render_replaces_all_tokens_and_parses():
-    r = build_source("demo").scan()
+    r = build_source(["demo"]).scan()
     html = render_html(r)
     for tok in _TOKENS:
         assert tok not in html, f"token {tok} left in output"
@@ -28,7 +28,7 @@ def test_render_replaces_all_tokens_and_parses():
     assert "http://" not in html.replace("http://www.w3.org", "")  # no external requests
     blob = _data_blob(html)
     assert "</" not in blob
-    assert json.loads(blob)["summary"]["total_agents"] == 13
+    assert json.loads(blob)["summary"]["total_agents"] == 16
 
 
 def test_script_breakout_is_escaped():
@@ -46,7 +46,7 @@ def test_script_breakout_is_escaped():
 
 
 def test_render_json_shape():
-    obj = json.loads(render_json(build_source("demo").scan()))
+    obj = json.loads(render_json(build_source(["demo"]).scan()))
     assert obj["schema_version"] == "agentcensus/v1"
-    assert obj["summary"]["total_agents"] == 13
+    assert obj["summary"]["total_agents"] == 16
     assert obj["summary"]["findings_by_severity"]["critical"] >= 1

@@ -1,7 +1,15 @@
 from datetime import UTC, datetime, timedelta
 
 from agent_census.findings import build_summary, categorize, evaluate
-from agent_census.models import Agent, GuardrailRef, OwnerRef, ToolRef, ToolType
+from agent_census.models import (
+    Agent,
+    GuardrailRef,
+    KnowledgeKind,
+    KnowledgeRef,
+    OwnerRef,
+    ToolRef,
+    ToolType,
+)
 
 NOW = datetime(2026, 6, 18, tzinfo=UTC)
 
@@ -73,6 +81,29 @@ def test_broad_channels():
     assert "SWEEP-008" not in codes(mk(channels=["Microsoft Teams"]))
 
 
+def test_broadly_shared_capable():
+    write = ToolRef(name="CreateThing", tool_type=ToolType.HTTP, write_capable=True)
+    # shared + a capability amplifier -> fires
+    assert "SWEEP-011" in codes(mk(shared_with_everyone=True, tools=[write]))
+    assert "SWEEP-011" in codes(mk(multi_tenant=True, autonomous=True))
+    assert "SWEEP-011" in codes(mk(shared_with_everyone=True, channels=["Slack"]))
+    # shared but read-only / no amplifier -> NOT flagged (intended, common)
+    assert "SWEEP-011" not in codes(mk(shared_with_everyone=True))
+    # capable but not shared -> NOT flagged
+    assert "SWEEP-011" not in codes(mk(tools=[write]))
+
+
+def test_external_data_connection():
+    ext = KnowledgeRef(
+        name="SharePoint HR",
+        kind=KnowledgeKind.DISCOVERY_ENGINE_DATASTORE,
+        external_source="sharepoint",
+    )
+    native = KnowledgeRef(name="Drive", kind=KnowledgeKind.DISCOVERY_ENGINE_DATASTORE)
+    assert "SWEEP-012" in codes(mk(knowledge=[ext]))
+    assert "SWEEP-012" not in codes(mk(knowledge=[native]))
+
+
 def test_empty_instructions():
     assert "SWEEP-009" in codes(mk(instructions=""))
     assert "SWEEP-009" in codes(mk(instructions="You are a helpful assistant."))
@@ -100,8 +131,13 @@ def test_findings_sorted_by_severity():
 
 def test_categorize():
     assert categorize(mk(autonomous=True)) == "autonomous"
-    assert categorize(mk(shared_with_everyone=True)) == "customer_facing"
+    # shared org-wide internally -> org_wide, NOT customer_facing
+    assert categorize(mk(shared_with_everyone=True)) == "org_wide"
+    # genuinely external reach -> customer_facing
+    assert categorize(mk(multi_tenant=True)) == "customer_facing"
     assert categorize(mk(channels=["Slack"])) == "customer_facing"
+    # external reach wins over org-wide sharing
+    assert categorize(mk(shared_with_everyone=True, channels=["Slack"])) == "customer_facing"
     assert categorize(mk(owners=[])) == "internal"  # missing owner no longer = orphaned
     assert categorize(mk()) == "internal"
 

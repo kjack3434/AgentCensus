@@ -1,10 +1,12 @@
-"""Auth flows with MSAL mocked out (no real sign-in)."""
+"""Auth flows with MSAL / CLIs mocked out (no real sign-in).
 
-import pytest
+``build_microsoft_auth`` resolves a strategy to ``(provider, note)`` — ``None``
+(not raising) when the strategy isn't configured/signed-in, so the caller can skip
+a provider gracefully.
+"""
 
 import agent_census.live.auth as auth_mod
-from agent_census.errors import DiscoveryError
-from agent_census.live.auth import DeviceCodeAuth, build_auth
+from agent_census.live.auth import DeviceCodeAuth, build_microsoft_auth
 
 
 class FakePublicApp:
@@ -35,6 +37,16 @@ class FakeConfApp:
         return {"access_token": "app-tok"}
 
 
+class _Proc:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+# ── device-code flow ─────────────────────────────────────────────────────────
+
+
 def test_device_flow_prompts_and_returns_token(monkeypatch):
     monkeypatch.setattr(auth_mod.msal, "PublicClientApplication", FakePublicApp)
     prompts = []
@@ -61,29 +73,27 @@ def test_device_flow_uses_silent_after_first(monkeypatch):
     assert auth.get_token("s2") == "silent"  # second resource: silent
 
 
-def test_app_flow(monkeypatch):
+# ── strategy resolver: Microsoft ──────────────────────────────────────────────
+
+
+def test_app_strategy(monkeypatch):
     monkeypatch.setattr(auth_mod.msal, "ConfidentialClientApplication", FakeConfApp)
-    auth = build_auth(mode="app", client_id="c", tenant="t", client_secret="s")
-    assert auth.get_token("scope") == "app-tok"
+    provider, _ = build_microsoft_auth("app", client_id="c", tenant="t", client_secret="s")
+    assert provider is not None
+    assert provider.get_token("scope") == "app-tok"
 
 
-class _Proc:
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-
-
-def test_cli_auth_returns_token(monkeypatch):
+def test_cli_strategy_returns_token(monkeypatch):
     monkeypatch.setattr(auth_mod.shutil, "which", lambda name: "/usr/bin/az")
     monkeypatch.setattr(
         auth_mod.subprocess, "run", lambda *a, **k: _Proc(stdout='{"accessToken": "cli-tok"}')
     )
-    auth = build_auth(mode="cli")  # no client_id required
-    assert auth.get_token("https://management.azure.com/.default") == "cli-tok"
+    provider, _ = build_microsoft_auth("cli")  # probes `az` at build, then reuses the token
+    assert provider is not None
+    assert provider.get_token("https://management.azure.com/.default") == "cli-tok"
 
 
-def test_cli_auth_dataverse_uses_user_impersonation_scope(monkeypatch):
+def test_cli_strategy_dataverse_uses_user_impersonation_scope(monkeypatch):
     monkeypatch.setattr(auth_mod.shutil, "which", lambda name: "/usr/bin/az")
     captured = {}
 
@@ -92,13 +102,14 @@ def test_cli_auth_dataverse_uses_user_impersonation_scope(monkeypatch):
         return _Proc(stdout='{"accessToken": "t"}')
 
     monkeypatch.setattr(auth_mod.subprocess, "run", fake_run)
-    build_auth(mode="cli").get_token("https://org.crm.dynamics.com/.default")
+    provider, _ = build_microsoft_auth("cli")
+    provider.get_token("https://org.crm.dynamics.com/.default")
     i = captured["cmd"].index("--scope")
     # Dataverse is a public-client resource → user_impersonation, not /.default
     assert captured["cmd"][i + 1] == "https://org.crm.dynamics.com/user_impersonation"
 
 
-def test_cli_auth_arm_keeps_default_scope(monkeypatch):
+def test_cli_strategy_arm_keeps_default_scope(monkeypatch):
     monkeypatch.setattr(auth_mod.shutil, "which", lambda name: "/usr/bin/az")
     captured = {}
 
@@ -107,41 +118,44 @@ def test_cli_auth_arm_keeps_default_scope(monkeypatch):
         return _Proc(stdout='{"accessToken": "t"}')
 
     monkeypatch.setattr(auth_mod.subprocess, "run", fake_run)
-    build_auth(mode="cli").get_token("https://management.azure.com/.default")
+    provider, _ = build_microsoft_auth("cli")  # probe already used the ARM scope
+    provider.get_token("https://management.azure.com/.default")
     i = captured["cmd"].index("--scope")
     assert captured["cmd"][i + 1] == "https://management.azure.com/.default"
 
 
-def test_cli_auth_missing_az(monkeypatch):
+def test_cli_strategy_missing_az(monkeypatch):
     monkeypatch.setattr(auth_mod.shutil, "which", lambda name: None)
-    with pytest.raises(DiscoveryError):
-        build_auth(mode="cli")
+    provider, note = build_microsoft_auth("cli")
+    assert provider is None and "Azure CLI" in note
 
 
-def test_cli_auth_login_failure(monkeypatch):
+def test_cli_strategy_not_signed_in(monkeypatch):
     monkeypatch.setattr(auth_mod.shutil, "which", lambda name: "/usr/bin/az")
     monkeypatch.setattr(
         auth_mod.subprocess,
         "run",
         lambda *a, **k: _Proc(returncode=1, stderr="Please run 'az login'"),
     )
-    auth = build_auth(mode="cli")
-    with pytest.raises(DiscoveryError):
-        auth.get_token("https://ai.azure.com/.default")
+    provider, note = build_microsoft_auth("cli")  # probe fails -> not configured
+    assert provider is None and "signed in" in note
 
 
-def test_build_auth_requires_client_id():
-    with pytest.raises(DiscoveryError):
-        build_auth(mode="device", client_id=None)
+def test_device_strategy_requires_client_id():
+    provider, note = build_microsoft_auth("device", client_id=None)
+    assert provider is None and "client-id" in note
 
 
-def test_build_auth_app_requires_secret_and_tenant():
-    with pytest.raises(DiscoveryError):
-        build_auth(mode="app", client_id="c", tenant="t", client_secret=None)
-    with pytest.raises(DiscoveryError):
-        build_auth(mode="app", client_id="c", tenant=None, client_secret="s")
+def test_app_strategy_requires_secret_and_tenant():
+    assert build_microsoft_auth("app", client_id="c", tenant="t", client_secret=None)[0] is None
+    assert build_microsoft_auth("app", client_id="c", tenant=None, client_secret="s")[0] is None
 
 
-def test_build_auth_unknown_mode():
-    with pytest.raises(DiscoveryError):
-        build_auth(mode="bogus", client_id="c")
+def test_adc_strategy_is_google_only():
+    provider, note = build_microsoft_auth("adc")
+    assert provider is None and "Google" in note
+
+
+def test_unknown_strategy():
+    provider, note = build_microsoft_auth("bogus", client_id="c")
+    assert provider is None and "unknown" in note.lower()

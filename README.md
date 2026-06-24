@@ -5,27 +5,31 @@
 
 # AgentCensus
 
-**A simple, ad-hoc view of your Microsoft AI agent estate — run it when you need it.**
+**A simple, ad-hoc view of your AI agent estate — run it when you need it.**
 
-AgentCensus pulls your agents from across **Microsoft Copilot Studio** and **Azure AI Foundry** and combines
-the scattered details — models, tools, knowledge sources, owners, channels, posture, and governance flags —
-into one self-contained HTML report, so you can review the whole estate at a glance instead of clicking
-through portals. It also surfaces a few governance risks (public/unauthenticated bots, autonomous actions
-without approval, ungoverned models, broad exposure). The result is one file you can open, share, or attach
-to a ticket — no database, no server, nothing to set up but Python.
+AgentCensus pulls your agents from across **Microsoft Copilot Studio**, **Azure AI Foundry**, and **Google
+Cloud** (Vertex AI Agent Engine, Agentspace / Gemini Enterprise, Dialogflow CX) and combines the scattered
+details — models, tools, knowledge sources, owners, channels, posture, and governance flags — into one
+self-contained HTML report, so you can review the whole estate at a glance instead of clicking through
+portals. It also surfaces a few governance risks (public/unauthenticated bots, autonomous actions without
+approval, ungoverned models, broad exposure, external/cross-cloud data connections). The result is one file
+you can open, share, or attach to a ticket — no database, no server, nothing to set up but Python.
 
-> **Early & evolving.** This is a lightweight, ad-hoc snapshot — not a full governance platform. Deeper checks
-> and **wider providers** (beyond Microsoft) are in the works.
+> **Early & evolving.** This is a lightweight, ad-hoc snapshot — not a full governance platform. Microsoft is
+> fully supported; **Google Cloud is an initial release** (see [Google Cloud](#google-cloud-initial-release))
+> with broader coverage and deeper checks to follow.
 
 > **Read-only & private.** AgentCensus only *reads* discovery metadata — it never creates, modifies, or deletes
-> anything in your tenant. It sends **no telemetry**; it talks only to Microsoft's own APIs.
+> anything in your tenant or project. It sends **no telemetry**; it talks only to Microsoft's and Google
+> Cloud's own APIs.
 
 ## Contents
 
 - [Quick start](#quick-start-no-account-needed)
 - [Sample report](#sample-report)
 - [What it finds](#what-it-finds)
-- [Discover your live agents (3 ways)](#discover-your-live-agents)
+- [Discover your live agents](#discover-your-live-agents)
+- [Google Cloud (initial release)](#google-cloud-initial-release)
 - [Sources](#sources)
 - [Command reference](#command-reference)
 - [Output](#output)
@@ -59,9 +63,10 @@ uv sync
 uv run agentcensus sweep --demo --open
 ```
 
-Step 3 opens an interactive HTML report built from a **synthetic sample estate** (~13 fictional agents). If
-that worked, you're ready to point it at your real tenant — see
-[Discover your live agents](#discover-your-live-agents).
+Step 3 opens an interactive HTML report built from a **synthetic sample estate** (~16 fictional agents across
+Microsoft and Google Cloud). If that worked, you're ready to point it at your real tenant — see
+[Discover your live agents](#discover-your-live-agents) (Microsoft) or
+[Google Cloud](#google-cloud-initial-release).
 
 <details>
 <summary>Prefer plain <code>pip</code> instead of uv?</summary>
@@ -98,58 +103,70 @@ shared-with-everyone, no-auth-required, multi-tenant). On top of that, governanc
 
 ## Discover your live agents
 
-Three ways to connect, **easiest first**. All are **read-only**. Pick the row that fits you:
-
-| Option | Best for | App registration | You provide |
-|---|---|---|---|
-| **1 · Azure CLI** (`--auth cli`) | a quick personal one-off | **none** | just `az login` |
-| **2 · Device code** (`--auth device`, default) | individuals, repeatable | one **public-client** app | `--client-id` |
-| **3 · Service principal** (`--auth app`) | CI / automation / org-wide | one **app + secret** | `--client-id --tenant --client-secret` |
-
-Whichever you choose, the **identity** doing the discovery (you, or the service principal) also needs
-read access to the data — see [What the identity needs to read](#what-the-identity-needs-to-read). Run all the
+One `sweep` covers your **whole estate**. `--source all` (the default) discovers Microsoft **Copilot Studio**
++ **Azure AI Foundry** *and* **Google Cloud**; `--auth` chooses *how* you sign in and is applied to each cloud
+with its own mechanism. Sign into the clouds you use — any cloud you're **not** signed into is skipped with a
+warning, and the run prints an `Auth —` line showing what it used. Everything is **read-only**. Run the
 commands below from the `AgentCensus` folder you cloned in [Quick start](#quick-start-no-account-needed).
 
-### Option 1 — Easiest: reuse your Azure sign-in (no app registration)
-
-The fastest way to see your *real* agents. If you can run `az login`, AgentCensus borrows that session —
-nothing to register, no admin help needed.
-
-From the `AgentCensus` folder you cloned in [Quick start](#quick-start-no-account-needed), copy-paste:
+### The fastest run — reuse your CLI sign-ins (`--auth cli`, the default)
 
 ```bash
-# 1 — sign in to Azure (opens your browser)
-az login
+az login                 # Microsoft: Copilot Studio + Foundry
+gcloud auth login        # Google Cloud (skip if you don't use GCP)
 
-# 2 — run the sweep and open the report
-uv run agentcensus sweep --auth cli --open
+uv run agentcensus sweep --project YOUR_GCP_PROJECT --open
 ```
 
-**Don't have the Azure CLI yet?** Install it once, then run the two commands above:
+`--auth cli` borrows your existing `az` / `gcloud` sessions — no app registration, no key. `--project` tells
+GCP what to scan (it has no org-wide enumeration); **omit it if you're not scanning GCP**.
 
-- [**Install the Azure CLI**](https://learn.microsoft.com/cli/azure/install-azure-cli) — Windows, macOS, or Linux.
-- Signing in to a specific tenant: `az login --tenant <tenant-id>`.
-
-Good to know:
-- **App registration:** none — the Azure CLI signs you in.
-- **Permissions:** your account just needs **read** access to the agents — see
-  [What the identity needs to read](#what-the-identity-needs-to-read).
-- **If Copilot Studio shows an auth error** (some tenants restrict which apps may call Dataverse), use
-  **Option 2** for that part — Foundry still works fine via the CLI. With `--source all`, a failing connector
-  is skipped and noted in the report; everything else still completes.
-
-### Option 2 — Sign in as yourself (device code)
-
-Repeatable interactive sign-in; acts as you. This is the default `--auth`.
+**Only one cloud?** Narrow `--source` so the others aren't attempted:
 
 ```bash
-uv run agentcensus sweep --client-id <app-client-id> --open
+uv run agentcensus sweep --source copilot-studio,foundry --open            # Microsoft only
+uv run agentcensus sweep --source gcp --project YOUR_GCP_PROJECT --open     # Google Cloud only
+```
+
+> Missing a cloud CLI? Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+> (`az login --tenant <id>` targets a specific tenant) and/or the
+> [gcloud CLI](https://cloud.google.com/sdk/docs/install). If Copilot Studio specifically errors under `cli`
+> (some tenants restrict which apps may call **Dataverse**, the store behind Copilot Studio), use
+> `--auth device` for it — the failing connector is skipped with a warning and everything else still completes.
+
+### Auth strategies
+
+`--auth` is a **strategy** applied per provider — one flag, both clouds:
+
+| `--auth` | Microsoft (Copilot Studio + Foundry) | Google Cloud | Best for |
+|---|---|---|---|
+| **`cli`** (default) | reuse `az login` | reuse `gcloud auth login` | quick interactive / personal runs |
+| **`app`** | Entra app + client secret | service-account key (`--gcp-key-file`) | CI / automation / unattended |
+| **`device`** | Entra device-code sign-in | *(Microsoft only)* | repeatable interactive, no app/CLI |
+| **`adc`** | *(Google only)* | Application Default Credentials | GCP local dev / workload identity |
+
+`cli` needs only the CLI sign-in. The Microsoft `device` / `app` strategies need a one-time **app
+registration** (below); the Google `app` / `adc` strategies need the optional **`[gcp]` extra** — see
+[Google Cloud](#google-cloud-initial-release). Whichever you pick, the identity also needs **read** access to
+the agents — Microsoft roles in [What the identity needs to read](#what-the-identity-needs-to-read), GCP roles
+in the Google Cloud section.
+
+### Microsoft app registration — for `--auth device` / `app`
+
+`--auth cli` needs none of this. The `device` and `app` strategies need a one-time Entra app registration.
+
+**`--auth device`** — repeatable interactive sign-in that acts as you:
+
+```bash
+uv run agentcensus sweep --auth device --client-id <app-client-id> \
+  --source copilot-studio,foundry --open
 # you'll be prompted to open https://microsoft.com/devicelogin and enter a code
 ```
 
-**One-time app registration (public client):**
+One-time app registration (public client):
 
-1. **Entra admin center → App registrations → New registration.** Name it (e.g. `agentcensus`). Register.
+1. **Entra admin center** (Microsoft's identity portal, formerly Azure AD) **→ App registrations → New
+   registration.** Name it (e.g. `agentcensus`). Register.
 2. **Authentication → Advanced settings → Allow public client flows → Yes.** (Enables device code; no
    redirect URI needed.)
 3. **API permissions → Add a permission → Delegated:**
@@ -162,20 +179,16 @@ uv run agentcensus sweep --client-id <app-client-id> --open
 
 4. Copy the **Application (client) ID** → pass as `--client-id` (or set `AGENTCENSUS_CLIENT_ID`).
 
-Plus the read roles in [What the identity needs to read](#what-the-identity-needs-to-read) on your account.
-
-### Option 3 — Service principal (CI / automation / org-wide)
-
-No interactive sign-in; runs as the app itself. Best for pipelines and unattended, org-wide sweeps.
+**`--auth app`** — service principal; no interactive sign-in, runs as the app itself (CI / unattended):
 
 ```bash
 export AGENTCENSUS_CLIENT_SECRET='…'        # keep the secret out of shell history
 uv run agentcensus sweep --auth app \
   --tenant <tenant-id> --client-id <app-id> \
-  --source all --out report.html
+  --source copilot-studio,foundry --out report.html
 ```
 
-**One-time setup (service principal):**
+One-time setup (service principal):
 
 1. **Certificates & secrets → New client secret** on the app registration. Store the value as
    `AGENTCENSUS_CLIENT_SECRET`.
@@ -185,9 +198,13 @@ uv run agentcensus sweep --auth app \
 3. **Foundry:** assign the service principal Azure RBAC **Reader** on the subscription(s) **and** a read role
    on the Foundry project(s)/account(s).
 
+> To sweep **both clouds** under `--auth app`, combine this Microsoft app with a GCP service-account key
+> (`--gcp-key-file`) and drop the `--source` filter — each provider uses its own `app` credential.
+
 ### What the identity needs to read
 
-Regardless of auth option, the account or service principal must be able to *read* the agents:
+Regardless of auth strategy, the Microsoft account or service principal must be able to *read* the agents
+(Google Cloud roles are in the [Google Cloud](#google-cloud-initial-release) section):
 
 | Ecosystem | Read access required |
 |---|---|
@@ -196,17 +213,96 @@ Regardless of auth option, the account or service principal must be able to *rea
 
 ---
 
+## Google Cloud (initial release)
+
+> **Initial release.** GCP discovery is new and best-effort, with the honest coverage caveats below — more
+> surfaces and depth to follow.
+
+Like the Microsoft side, this is **read-only**. Google Cloud is part of `--source all` (no vendor is
+preferred) and can also be run on its own with `--source gcp`.
+
+### Authenticate
+
+GCP uses the same `--auth` strategies as the rest of the tool (see [Auth strategies](#auth-strategies)):
+`cli` reuses your `gcloud` session, `app` uses a service-account key, `adc` uses Application Default
+Credentials. `app` and `adc` need Google's `google-auth` library — install it once with the optional extra
+(`uv sync --extra gcp`); `cli` needs no extra.
+
+```bash
+# easiest: reuse your gcloud session (no key, no extra)
+gcloud auth login
+uv run agentcensus sweep --source gcp --auth cli --project YOUR_PROJECT_ID --open
+
+# Application Default Credentials (local dev / workload identity)
+uv sync --extra gcp
+gcloud auth application-default login
+uv run agentcensus sweep --source gcp --auth adc --project YOUR_PROJECT_ID
+
+# service account (CI)
+uv sync --extra gcp
+uv run agentcensus sweep --source gcp --auth app --gcp-key-file key.json --project YOUR_PROJECT_ID
+```
+
+### What the identity needs to read
+
+Enable the API and grant a **Viewer** role per surface you want covered:
+
+| Surface | Enable API | Read role |
+|---|---|---|
+| **Agent Engine** (Vertex AI) | `aiplatform.googleapis.com` | `roles/aiplatform.viewer` |
+| **Agentspace / Gemini Enterprise** | `discoveryengine.googleapis.com` | `roles/discoveryengine.viewer` (editor to list managed agents) |
+| **Dialogflow CX** | `dialogflow.googleapis.com` | `roles/dialogflow.reader` |
+
+Read-only is enforced by these **Viewer roles**, not by the OAuth scope: GCP requires the full
+`cloud-platform` scope (the read-only variant is rejected by Vertex AI), so grant least-privilege Viewer roles
+and rely on them. A surface whose API isn't enabled is skipped quietly; a real permission error is noted in
+the report warnings.
+
+### Choosing what to scan
+
+- **Projects** — there is **no org-wide auto-enumeration**; you scan the projects you name:
+  `--project a,b,c` (or `AGENTCENSUS_PROJECT`; list yours with `gcloud projects list`). With none given, it uses
+  the credential's home project *where one exists* (the gcloud active project, or the ADC default) — a
+  service-account key has none, so `--auth app` requires `--project`. Granting org/folder roles does **not**
+  expand coverage.
+- **Regions** — Agent Engine and Dialogflow are regional; AgentCensus scans a default set of GA regions plus
+  `global`. Agents deployed elsewhere are silently missed — pass `--location us-east1,europe-west2` to override.
+
+### Coverage caveats (please read)
+
+- **Coverage is bounded by what you scan** — only the projects you name (or the home project) and the default
+  GA region set + `global`; see [Choosing what to scan](#choosing-what-to-scan).
+- **Code-deployed Agent Engine / Agentspace agents are opaque** — their model, system prompt, and tools live
+  inside the deployment package and aren't returned by the API, so they're shown as **"not exposed"** (not
+  scored) — *unless* a no-code (Agent Designer) **`lowcodeAgent`** design config exists, in which case the real
+  model / instructions / tools are grafted in and attributed to the underlying agent. Dialogflow CX exposes
+  instructions + tools directly.
+- **No-code resolution uses the console `/ui/` surface** — token-accessible but undocumented; best-effort and
+  may change.
+- **Autonomy is posture-only on GCP** — Gemini's `invocationMode: AUTOMATIC` is recorded but not treated as
+  "autonomous" (a human is still driving the chat), so it doesn't trip the autonomy finding.
+- **Data stores are app-level** — a Gemini Enterprise app's data stores are shared across its agents (not
+  agent-owned); they're tagged **app-level (shared)**, and external/cross-cloud connectors (e.g. SharePoint)
+  are flagged (SWEEP-012).
+
+---
+
 ## Sources
 
 ```bash
-uv run agentcensus sweep --demo                                  # synthetic sample (no auth)
-uv run agentcensus sweep --source all          --client-id <id>  # Copilot Studio + Foundry (default)
-uv run agentcensus sweep --source copilot-studio --client-id <id> --environment <env>
-uv run agentcensus sweep --source foundry      --client-id <id> --subscription <azure-sub>
+uv run agentcensus sweep --demo                                       # synthetic sample (no auth)
+uv run agentcensus sweep --project <gcp-proj>                         # everything reachable (default: all clouds, cli)
+uv run agentcensus sweep --source copilot-studio --environment <env>  # one Copilot Studio environment
+uv run agentcensus sweep --source foundry --subscription <azure-sub>  # one Azure subscription
+uv run agentcensus sweep --source gcp --project <gcp-project>         # Google Cloud only
+uv run agentcensus sweep --source foundry,gcp --project <gcp-project> # pick connectors
 ```
 
-`all` merges every live connector into one report and skips any that fail (with a warning), so partial access
-still produces a useful inventory.
+`--source` takes `all`, `demo`, or a comma list of `copilot-studio`, `foundry`, `gcp`. `all` (the default)
+runs **every** connector across both clouds; each provider authenticates independently, and one you can't
+reach is **skipped with a warning** (no vendor is preferred), so partial access still produces a useful
+inventory. The run prints an `Auth —` status line, e.g.
+`Auth — Microsoft: Azure CLI (az login) · Google Cloud: gcloud (gcloud auth)`.
 
 ## Command reference
 
@@ -214,16 +310,25 @@ still produces a useful inventory.
 agentcensus sweep [OPTIONS]
 
   --demo                       Use the bundled synthetic estate (implies --source demo).
-  --source [all|copilot-studio|foundry|demo]   Discovery source (default: all).
-  --auth   [device|app|cli]    device (sign in as you) · app (service principal) · cli (reuse az login).
+  --source TEXT                'all' (default) · 'demo' · or a comma list of copilot-studio, foundry, gcp.
+  --auth   [cli|app|device|adc]
+                               Strategy, applied per provider:
+                                 cli    reuse local CLI   (Microsoft: az login · Google: gcloud)
+                                 app    service credential (Microsoft: Entra app+secret · Google: SA key)
+                                 device Entra device-code  (Microsoft only)
+                                 adc    Application Default Credentials (Google only)
   -o, --out PATH               Output file (default: reports/agentcensus-<source>-<timestamp>.html).
   -f, --format [html|json]     Output format (default: html).
   --stale-days INTEGER         Flag agents not modified in this many days (default: 90).
   --client-id TEXT             Entra app registration client id (device/app).  [env: AGENTCENSUS_CLIENT_ID]
   --tenant TEXT                Entra tenant id (app auth).                      [env: AGENTCENSUS_TENANT]
-  --client-secret TEXT         Client secret (app auth).                        [env: AGENTCENSUS_CLIENT_SECRET]
+  --client-secret TEXT         Entra client secret (app auth).                 [env: AGENTCENSUS_CLIENT_SECRET]
   --environment TEXT           Limit Copilot Studio to one environment.         [env: AGENTCENSUS_ENVIRONMENT]
   --subscription TEXT          Limit Foundry to one Azure subscription.         [env: AGENTCENSUS_SUBSCRIPTION]
+  --project TEXT               GCP project id(s), comma-separated.              [env: AGENTCENSUS_PROJECT]
+  --location TEXT              GCP region(s), comma-separated (default: GA set + global). [env: AGENTCENSUS_LOCATION]
+  --gcp-key-file PATH          GCP service-account JSON key (--auth app).       [env: AGENTCENSUS_GCP_KEY_FILE]
+  --gcp-impersonate TEXT       GCP service-account email to impersonate (--auth cli).
   --open                       Open the report in your browser when done.
   --fail-on [critical|high|medium|low|info]   Exit non-zero if a finding is at/above this severity.
   -q, --quiet                  Suppress the terminal summary.
@@ -247,21 +352,27 @@ uv run agentcensus schema      # print the JSON schema of the report
 | ID | Title | Severity |
 |----|-------|----------|
 | SWEEP-001 | Public, unauthenticated agent | **critical** |
-| SWEEP-004 | Autonomous without human-in-the-loop | high |
+| SWEEP-004 | Autonomous agent without human-in-the-loop | high |
 | SWEEP-005 | Write-capable tool without approval | high |
 | SWEEP-006 | Uses external MCP server | medium |
 | SWEEP-007 | Experimental/preview/unknown model | medium |
 | SWEEP-008 | Broad channel exposure | medium |
+| SWEEP-011 | Broadly shared agent with elevated capability | medium |
+| SWEEP-012 | External / cross-cloud data connection | medium |
 | SWEEP-009 | Empty or placeholder instructions | low |
 | SWEEP-010 | Stale agent (`--stale-days`) | low |
 
-Each finding carries a one-line remediation in the report. Agents are also bucketed into a category:
-`autonomous`, `customer_facing`, or `internal`.
+Rules apply across providers wherever the underlying field is observable; SWEEP-001 (no-auth) and SWEEP-008
+(channels) are Microsoft-surface signals with no Google Cloud equivalent. Each finding carries a one-line
+remediation in the report. Agents are also bucketed by audience: `autonomous`, `customer_facing` (external
+reach), `org_wide` (shared with everyone *internally*), or `internal` (scoped).
 
-> **Coverage:** content-safety / RAI is applied by default, and its real posture (plus DLP) is governed via
-> **Microsoft Purview** (DSPM for AI) and Azure AI Content Safety — not exposed by the discovery APIs.
-> Verified ownership is also often not harvestable. AgentCensus shows these gaps rather than scoring them, so
-> the absence of a guardrail or owner is never itself a finding.
+> **Coverage:** content-safety / RAI is applied by default, and its real posture (plus DLP) is governed
+> out-of-band — **Microsoft Purview** (DSPM for AI) / Azure AI Content Safety, and on Google Cloud **Vertex AI
+> safety / Model Armor / Cloud DLP** — not exposed by the discovery APIs. Verified ownership is also often not
+> harvestable, and code-deployed GCP agents' behavior may be opaque (see
+> [Google Cloud caveats](#coverage-caveats-please-read)). AgentCensus shows these gaps rather than scoring
+> them, so the absence of a guardrail or owner is never itself a finding.
 
 ## Use it in CI
 
@@ -276,20 +387,25 @@ Writes the report **and** fails the build if any high/critical finding exists. E
 
 ## Troubleshooting
 
-- **`live discovery needs --client-id`** — you ran a live source (`--auth device`/`app`) without an app
-  registration id. Pass `--client-id`, switch to `--auth cli`, or use `--demo`.
-- **`app auth requires --tenant and --client-secret`** — `--auth app` needs both; set
-  `AGENTCENSUS_CLIENT_SECRET` and pass `--tenant`.
-- **`Azure CLI ('az') not found`** / **`az token acquisition failed`** — `--auth cli` needs the Azure CLI
-  installed and `az login` completed (try `az login --tenant <id>`).
-- **Signed in but zero agents discovered** — the identity lacks read access; grant the roles in
-  [What the identity needs to read](#what-the-identity-needs-to-read). The report's warnings name the resource.
-- **`access denied (403)` for one environment/subscription** — that resource is skipped and noted in the
+- **`device sign-in needs --client-id`** — `--auth device` needs an Entra app registration id. Pass
+  `--client-id`, switch to `--auth cli` (reuse `az login`), or use `--demo`.
+- **`app auth needs --client-id, --tenant and --client-secret`** — `--auth app` (Microsoft) needs all three;
+  set `AGENTCENSUS_CLIENT_SECRET` and pass the others.
+- **`Azure CLI (az) not found` / `not signed in`** — `--auth cli` needs the Azure CLI installed and `az login`
+  completed (try `az login --tenant <id>`).
+- **`gcloud CLI not found` / `not signed in`** — `--auth cli` for Google needs gcloud installed and
+  `gcloud auth login` completed; or use `--auth app --gcp-key-file …` (needs `uv sync --extra gcp`).
+- **GCP: zero agents / `no GCP project specified`** — pass `--project <id>` (comma-separated for several);
+  there's no org-wide auto-enumeration. If agents are missing, they may be in a region outside the default set
+  — pass `--location <region>`.
+- **`needs the optional 'gcp' extra`** — `--auth app`/`adc` for Google need `google-auth`; run
+  `uv sync --extra gcp` (or use `--auth cli`, which doesn't).
+- **One provider skipped under `--source all`** — `all` skips any cloud you can't authenticate (see the `Auth —`
+  line and the report warnings) and reports the rest; a single-cloud user gets just their cloud.
+- **`access denied (403)` for one environment/subscription/region** — that resource is skipped and noted in the
   report warnings; the rest still completes. Add the missing read role.
 - **Copilot Studio fails under `--auth cli` but Foundry works** — some tenants restrict which clients may call
   Dataverse; use `--auth device` (with an app registration) for Copilot Studio.
-- **One ecosystem fails under `--source all`** — `all` skips the failing connector and reports the other; see
-  the warnings in the report.
 
 ## Security
 

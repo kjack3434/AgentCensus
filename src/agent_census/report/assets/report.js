@@ -15,11 +15,24 @@
     if (text != null) e.textContent = text;
     return e;
   }
-  function srcLabel(s) {
-    return s === "copilot_studio" ? "Copilot Studio"
-      : s === "azure_ai_foundry" ? "Azure AI Foundry"
-      : (s || "—");
-  }
+  var SRC_LABELS = {
+    copilot_studio: "Copilot Studio",
+    azure_ai_foundry: "Azure AI Foundry",
+    vertex_ai_agent_engine: "Vertex AI Agent Engine",
+    agentspace: "Agentspace",
+    dialogflow_cx: "Dialogflow CX"
+  };
+  function srcLabel(s) { return SRC_LABELS[s] || s || "—"; }
+  var CLOUD_LABELS = { microsoft: "Microsoft", google: "GCP" };
+  function cloudKey(a) { return (a.provider || "microsoft").toLowerCase(); }
+  function cloudLabel(a) { var k = cloudKey(a); return CLOUD_LABELS[k] || pretty(k); }
+  // Where each provider's real content-safety / DLP posture actually lives (not in discovery).
+  var GUARDRAILS_NOTE = {
+    microsoft: "Not exposed by discovery — governed via Microsoft Purview / Azure AI Content Safety",
+    google: "Not exposed by discovery — model safety applied by Vertex AI / Gemini; governed via Model Armor / Cloud DLP"
+  };
+  function guardrailsNote(a) { return GUARDRAILS_NOTE[cloudKey(a)] || "Not exposed by discovery"; }
+  function unobservable(a) { return (a.properties && a.properties.unobservable) || []; }
   function pretty(s) {
     if (!s) return "";
     s = String(s).replace(/_/g, " ");
@@ -150,10 +163,36 @@
     instr.appendChild(el("h4", null, "Instructions"));
     if (a.instructions && a.instructions.trim()) {
       instr.appendChild(el("div", "pre", a.instructions));
+    } else if (unobservable(a).indexOf("instructions") !== -1) {
+      instr.appendChild(el("div", "muted", "Not exposed by discovery — defined in the deployed code"));
     } else {
       instr.appendChild(el("div", "muted", "empty"));
     }
     inner.appendChild(instr);
+
+    // Discovery coverage — what the API genuinely can't see for this agent.
+    var uo = unobservable(a);
+    if (uo.length) {
+      var cov = el("div", "field full");
+      cov.appendChild(el("h4", null, "Discovery coverage"));
+      cov.appendChild(el("div", "muted",
+        "Not exposed by the discovery API for this agent: " + uo.join(", ") +
+        ". These live inside the deployed code and can't be read remotely, so they aren't scored."));
+      inner.appendChild(cov);
+    }
+
+    // Behavior provenance — when model/instructions/tools were grafted from a
+    // different underlying agent (e.g. a Gemini agent backed by an Agent Engine).
+    var bsrc = a.properties && a.properties.behavior_source;
+    if (bsrc) {
+      var bs = el("div", "field full");
+      bs.appendChild(el("h4", null, "Behavior source"));
+      var ref = bsrc.name || bsrc.lowcode_agent || bsrc.engine_id || "underlying agent";
+      var via = bsrc.kind === "agent_engine" ? "Agent Engine" : "underlying agent";
+      bs.appendChild(el("div", "muted",
+        "Model, instructions, and tools are referenced from the " + via + ": " + ref + "."));
+      inner.appendChild(bs);
+    }
 
     // Tools
     inner.appendChild(fieldList("Tools", a.tools, function (t) {
@@ -172,14 +211,16 @@
       var li = el("li");
       li.appendChild(el("span", "lead", k.name));
       var extra = [pretty(k.kind)];
+      if (k.assignment === "app") extra.push("app-level (shared)");
+      if (k.external_source) extra.push("external: " + k.external_source);
       if (k.scope) extra.push(k.scope);
       if (k.index_name) extra.push("index: " + k.index_name);
       li.appendChild(document.createTextNode(" — " + extra.join(", ")));
       return li;
     }));
 
-    // Guardrails — absence is NOT scored: content-safety/RAI is on by default and its
-    // real posture is only visible via Microsoft Purview / Azure AI Content Safety.
+    // Guardrails — absence is NOT scored: content safety is on by default and its
+    // real posture is only visible in each provider's governance plane (not discovery).
     var gf = el("div", "field");
     gf.appendChild(el("h4", null, "Guardrails"));
     if (a.guardrails && a.guardrails.length) {
@@ -195,8 +236,7 @@
       });
       gf.appendChild(gul);
     } else {
-      gf.appendChild(el("div", "muted",
-        "Not exposed by discovery — governed via Microsoft Purview / Content Safety"));
+      gf.appendChild(el("div", "muted", guardrailsNote(a)));
     }
     inner.appendChild(gf);
 
@@ -219,6 +259,7 @@
     if (a.no_auth_required) tags.push("no auth");
     if (a.multi_tenant) tags.push("multi-tenant");
     if (a.model_tier && a.model_tier !== "standard") tags.push("model tier: " + a.model_tier);
+    if (a.properties && a.properties.behavior_source) tags.push("behavior: referenced");
     posture.appendChild(tagRow(tags));
     inner.appendChild(posture);
 
@@ -278,6 +319,8 @@
     tr.appendChild(nameTd);
 
     var srcTd = el("td");
+    // Cloud chip first (Microsoft / GCP) so mixed-tenant reports group at a glance.
+    srcTd.appendChild(el("span", "cloud cloud-" + cloudKey(a), cloudLabel(a)));
     srcTd.appendChild(el("span", "tag", srcLabel(a.source_system)));
     tr.appendChild(srcTd);
 
@@ -321,7 +364,8 @@
   var state = { q: "", source: "", model: "", minSev: "", sortKey: "findings", asc: false };
 
   function searchText(a) {
-    var parts = [a.name, a.external_id, a.model, a.kind, srcLabel(a.source_system), a.instructions];
+    var parts = [a.name, a.external_id, a.model, a.kind, srcLabel(a.source_system),
+      cloudLabel(a), a.provider, a.instructions];
     (a.owners || []).forEach(function (o) { parts.push(o.name, o.email); });
     (a.tools || []).forEach(function (t) { parts.push(t.name, t.tool_type); });
     (a.channels || []).forEach(function (c) { parts.push(c); });
@@ -370,6 +414,28 @@
     document.getElementById("empty").hidden = filtered.length !== 0;
   }
 
+  // Coverage note — only the sentences for the providers actually present here.
+  function buildCoverageNote() {
+    var node = document.getElementById("coverage-note");
+    if (!node) return;
+    var clouds = {};
+    agents.forEach(function (a) { clouds[cloudKey(a)] = true; });
+    var parts = ["Coverage: AgentCensus reports what the discovery APIs expose; gaps are shown, not scored."];
+    if (clouds.microsoft) {
+      parts.push("Microsoft: content-safety / RAI and DLP posture is governed via Microsoft Purview "
+        + "(DSPM for AI) and Azure AI Content Safety, which discovery can't see; verified ownership is "
+        + "often not harvestable.");
+    }
+    if (clouds.google) {
+      parts.push("Google Cloud: no org-wide project auto-enumeration (coverage = the projects and regions "
+        + "scanned); code-deployed Agent Engine / Agentspace agents keep their model, instructions, and "
+        + "tools in the deployment package — shown as “not exposed” unless a no-code design "
+        + "config is available. Safety / DLP posture (Vertex AI safety, Model Armor) is not surfaced by "
+        + "discovery.");
+    }
+    node.textContent = parts.join(" ");
+  }
+
   // ── wire up ────────────────────────────────────────────────────────────────
   function debounce(fn, ms) {
     var t;
@@ -380,6 +446,7 @@
     document.getElementById("m-total").textContent = String(summary.total_agents || 0);
     buildCards();
     buildFilters();
+    buildCoverageNote();
 
     var q = document.getElementById("q");
     q.addEventListener("input", debounce(function () { state.q = q.value; render(); }, 120));

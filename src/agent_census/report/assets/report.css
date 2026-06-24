@@ -148,6 +148,21 @@ tr.agent.open .exp-toggle { transform: rotate(90deg); color: var(--accent); }
   border: 1px solid var(--border);
   white-space: nowrap;
 }
+/* Cloud / provider chip on the Source column (Microsoft vs GCP) for mixed reports. */
+.cloud {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  margin-right: 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.cloud-microsoft { background: rgba(43, 136, 216, 0.16); color: #4aa3ff; border-color: rgba(43, 136, 216, 0.45); }
+.cloud-google { background: rgba(52, 168, 83, 0.16); color: #57c97b; border-color: rgba(52, 168, 83, 0.45); }
 .findings-cell { display: inline-flex; align-items: center; gap: 7px; justify-content: flex-end; }
 .findings-cell .clean { color: var(--low); }
 

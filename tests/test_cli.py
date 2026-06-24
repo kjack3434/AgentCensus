@@ -24,7 +24,7 @@ def test_sweep_demo_html(tmp_path):
     txt = out.read_text(encoding="utf-8")
     assert '<table id="agents">' in txt
     assert 'id="data"' in txt
-    assert "Swept 13 agents" in res.output
+    assert "Swept 16 agents" in res.output
 
 
 def test_sweep_demo_json(tmp_path):
@@ -32,7 +32,7 @@ def test_sweep_demo_json(tmp_path):
     res = runner.invoke(app, ["sweep", "--demo", "-f", "json", "-o", str(out), "-q"])
     assert res.exit_code == 0
     obj = json.loads(out.read_text(encoding="utf-8"))
-    assert obj["summary"]["total_agents"] == 13
+    assert obj["summary"]["total_agents"] == 16
 
 
 def test_fail_on_critical_trips(tmp_path):
@@ -45,7 +45,7 @@ def test_fail_on_critical_trips(tmp_path):
 def test_missing_live_credentials(tmp_path):
     res = runner.invoke(
         app,
-        ["sweep", "--source", "copilot-studio", "-o", str(tmp_path / "r.html")],
+        ["sweep", "--source", "copilot-studio", "--auth", "device", "-o", str(tmp_path / "r.html")],
         env=_WIDE,
     )
     assert res.exit_code == 2
