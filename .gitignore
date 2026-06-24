@@ -54,15 +54,23 @@ out.json
 /memories/
 /.githooks/
 
-# AI assistant / dev-tool artifacts
+# AI assistant / editor artifacts — keep local, never commit (applies to contributors too)
 CLAUDE.md
 **/CLAUDE.md
 AGENTS.md
+GEMINI.md
+**/GEMINI.md
 .claude/
 .cursor/
+.cursorrules
 .windsurf/
+.windsurfrules
 .aider*
 .playwright-mcp/
+.codex/
+.gemini/
+.continue/
+.clinerules
 
 # Editor settings
 .vscode/
